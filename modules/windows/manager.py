@@ -30,6 +30,14 @@ class WindowInfo:
 class WindowManager:
     """Manages windows - enumeration, positioning, and smart matching"""
 
+    # Background/system processes to hide from window list
+    HIDDEN_PROCESSES = {
+        'systemsettings.exe', 'applicationframehost.exe', 'textinputhost.exe',
+        'shellexperiencehost.exe', 'searchhost.exe', 'startmenuexperiencehost.exe',
+        'lockapp.exe', 'widgetservice.exe', 'widgets.exe', 'gamebar.exe',
+        'gamebarpresencewriter.exe', 'runtimebroker.exe', 'dwm.exe',
+    }
+
     # App type identifiers for smart matching
     APP_IDENTIFIERS = {
         'brave': ['brave', 'brave-browser'],
@@ -80,7 +88,8 @@ class WindowManager:
             if win32gui.IsWindowVisible(hwnd):
                 info = self._get_window_info(hwnd)
                 if info and info.title and info.title != "Program Manager":
-                    windows.append(info)
+                    if info.process_name.lower() not in self.HIDDEN_PROCESSES:
+                        windows.append(info)
             return True
 
         win32gui.EnumWindows(callback, None)
@@ -94,7 +103,8 @@ class WindowManager:
             if win32gui.IsWindowVisible(hwnd) or win32gui.IsIconic(hwnd):
                 info = self._get_window_info(hwnd)
                 if info and info.title and info.title != "Program Manager":
-                    windows.append(info)
+                    if info.process_name.lower() not in self.HIDDEN_PROCESSES:
+                        windows.append(info)
             return True
 
         win32gui.EnumWindows(callback, None)

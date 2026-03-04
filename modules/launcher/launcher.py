@@ -1,23 +1,10 @@
 import subprocess
 import os
-import time
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from core.config import get_config
 
-try:
-    import pyautogui
-    pyautogui.FAILSAFE = False  # Don't abort if mouse in corner
-except ImportError:
-    pyautogui = None
-
-try:
-    import win32gui
-    import win32con
-except ImportError:
-    win32gui = None
-    win32con = None
 
 @dataclass
 class LaunchItem:
@@ -29,7 +16,7 @@ class LaunchItem:
     hotkey: Optional[str] = None
     args: str = ""
     icon: str = ""
-    terminal_type: Optional[str] = None  # "powershell" or "wsl" (for item_type="terminal")
+    terminal_type: Optional[str] = None  # "powershell", "wsl", or "cmd" (for item_type="terminal")
     new_tab: bool = False  # Always open in new terminal tab
 
     def to_dict(self) -> Dict[str, Any]:
@@ -121,12 +108,17 @@ class Launcher:
     def _launch_app(self, item: LaunchItem) -> bool:
         """Launch an application"""
         path = os.path.expandvars(os.path.expanduser(item.path))
+        # .lnk shortcuts and non-exe files need os.startfile or start command
+        ext = Path(path).suffix.lower()
+        if ext in ('.lnk', '.url', '.appref-ms'):
+            os.startfile(path)
+            return True
         if os.path.exists(path):
             args = item.args.split() if item.args else []
             subprocess.Popen([path] + args)
             return True
-        # Try via start command
-        subprocess.run(["start", "", item.path], shell=True)
+        # Try via start command (quote path for spaces)
+        subprocess.run(f'start "" "{item.path}"', shell=True)
         return True
 
     def _launch_script(self, item: LaunchItem) -> bool:
@@ -168,108 +160,60 @@ class Launcher:
         return True
 
     def _launch_terminal_command(self, item: LaunchItem) -> bool:
-        """Execute a command in an existing or new terminal"""
-        if not pyautogui or not win32gui:
-            print("pyautogui or win32gui not available")
-            return False
-
+        """Execute a command in a new terminal tab via shell arguments"""
         terminal_type = item.terminal_type or "powershell"
         command = item.path
 
-        # If new_tab requested, always open new tab
-        if item.new_tab:
-            return self._open_new_terminal_tab(terminal_type, command)
+        # Support multi-line commands (split and chain with &&)
+        if '\n' in command:
+            lines = [line.strip() for line in command.split('\n') if line.strip()]
+            if terminal_type == "powershell":
+                command = '; '.join(lines)  # PowerShell uses semicolon
+            else:
+                command = ' && '.join(lines)  # Bash/cmd use &&
 
-        # Try to find existing terminal window
-        terminal_hwnd = self._find_terminal_window(terminal_type)
-
-        if terminal_hwnd:
-            # Focus existing terminal and type command
-            self._focus_window(terminal_hwnd)
-            time.sleep(0.15)
-            pyautogui.typewrite(command, interval=0.01) if command.isascii() else pyautogui.write(command)
-            pyautogui.press('enter')
-            return True
-        else:
-            return self._open_new_terminal_tab(terminal_type, command)
+        return self._open_new_terminal_tab(terminal_type, command)
 
     def _open_new_terminal_tab(self, terminal_type: str, command: str) -> bool:
-        """Open a new terminal tab and run command"""
+        """Open a new terminal tab with command passed as shell arguments"""
         try:
             if terminal_type == "powershell":
-                subprocess.Popen(['wt.exe', '-w', '0', 'nt', 'powershell.exe'])
+                if command:
+                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'powershell.exe', '-NoExit', '-Command', command])
+                else:
+                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'powershell.exe'])
             elif terminal_type == "wsl":
-                subprocess.Popen(['wt.exe', '-w', '0', 'nt', '-p', 'Ubuntu'])
+                if command:
+                    # Can't use ; in wt.exe args (it's a tab separator) — use && with fallback
+                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'wsl.exe', 'bash', '-lic',
+                                      f'{command} && exec bash -l || exec bash -l'])
+                else:
+                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'wsl.exe'])
+            elif terminal_type == "cmd":
+                if command:
+                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'cmd.exe', '/k', command])
+                else:
+                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'cmd.exe'])
+            else:
+                return False
         except FileNotFoundError:
             # Fallback if wt.exe not found
             if terminal_type == "powershell":
-                subprocess.Popen(['powershell'])
+                if command:
+                    subprocess.Popen(['powershell.exe', '-NoExit', '-Command', command])
+                else:
+                    subprocess.Popen(['powershell.exe'])
             elif terminal_type == "wsl":
-                subprocess.Popen(['wsl'])
-
-        time.sleep(0.8)
-        if command:
-            pyautogui.typewrite(command, interval=0.01) if command.isascii() else pyautogui.write(command)
-            pyautogui.press('enter')
+                if command:
+                    subprocess.Popen(['wsl.exe', 'bash', '-lic', f'{command}; exec bash -l'])
+                else:
+                    subprocess.Popen(['wsl.exe'])
+            elif terminal_type == "cmd":
+                if command:
+                    subprocess.Popen(['cmd.exe', '/k', command])
+                else:
+                    subprocess.Popen(['cmd.exe'])
         return True
-
-    def _find_terminal_window(self, terminal_type: str) -> Optional[int]:
-        """Find an existing terminal window by type"""
-        if not win32gui:
-            return None
-
-        found_hwnd = None
-
-        def enum_callback(hwnd, _):
-            nonlocal found_hwnd
-            if not win32gui.IsWindowVisible(hwnd):
-                return True
-
-            class_name = win32gui.GetClassName(hwnd)
-            title = win32gui.GetWindowText(hwnd).lower()
-
-            # Windows Terminal (CASCADIA) - check title carefully
-            if "CASCADIA" in class_name:
-                if terminal_type == "wsl":
-                    # WSL titles contain: ubuntu, wsl, bash, or distro name
-                    if any(x in title for x in ["ubuntu", "wsl", "debian", "kali", "bash", "zsh"]):
-                        # Make sure it's NOT powershell
-                        if "powershell" not in title and "pwsh" not in title:
-                            found_hwnd = hwnd
-                            return False
-                elif terminal_type == "powershell":
-                    if "powershell" in title or "pwsh" in title:
-                        found_hwnd = hwnd
-                        return False
-            # Legacy console windows
-            elif class_name == "ConsoleWindowClass":
-                if terminal_type == "wsl" and any(x in title for x in ["ubuntu", "wsl", "bash"]):
-                    found_hwnd = hwnd
-                    return False
-                elif terminal_type == "powershell" and "powershell" in title:
-                    found_hwnd = hwnd
-                    return False
-            return True
-
-        try:
-            win32gui.EnumWindows(enum_callback, None)
-        except Exception:
-            pass
-
-        return found_hwnd
-
-    def _focus_window(self, hwnd: int):
-        """Focus a window by its handle"""
-        if not win32gui or not win32con:
-            return
-        try:
-            # Restore if minimized
-            if win32gui.IsIconic(hwnd):
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            # Bring to front
-            win32gui.SetForegroundWindow(hwnd)
-        except Exception as e:
-            print(f"Focus error: {e}")
 
     def get_all_items(self) -> List[LaunchItem]:
         """Get all launch items"""

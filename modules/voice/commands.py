@@ -107,6 +107,7 @@ class CommandManager:
     def __init__(self):
         self.command_map = self._build_command_map()
         self.custom_commands: Dict[str, Callable] = {}
+        self.custom_responses: Dict[str, str] = {}
         self.on_command_executed: Optional[Callable[[str, bool], None]] = None
         self.responses = COMMAND_RESPONSES
 
@@ -120,9 +121,11 @@ class CommandManager:
                     command_map[phrase.lower()] = handler_name
         return command_map
 
-    def register_custom_command(self, phrase: str, callback: Callable):
-        """Register a custom voice command"""
+    def register_custom_command(self, phrase: str, callback: Callable, response: str = None):
+        """Register a custom voice command with optional TTS response"""
         self.custom_commands[phrase.lower()] = callback
+        if response:
+            self.custom_responses[phrase.lower()] = response
         print(f"Registered custom command: {phrase}")
 
     def execute(self, text: str) -> Dict[str, Any]:
@@ -133,8 +136,9 @@ class CommandManager:
         if text_lower in self.custom_commands:
             try:
                 self.custom_commands[text_lower]()
+                response = self.custom_responses.get(text_lower, "Done")
                 self._notify_executed(text, True)
-                return {"executed": True, "success": True, "type": "custom", "response": f"Loading {text}"}
+                return {"executed": True, "success": True, "type": "custom", "response": response}
             except Exception as e:
                 print(f"Custom command error: {e}")
                 self._notify_executed(text, False)
@@ -248,6 +252,34 @@ class CommandManager:
         keyboard.send('ctrl+w')
         return True
 
+    # === Launcher Commands ===
+    def register_launcher_commands(self, launcher):
+        """Register voice commands for all launcher items"""
+        self.launcher = launcher
+        self._refresh_launcher_commands()
+
+    def _refresh_launcher_commands(self):
+        """Refresh launcher voice commands from saved items"""
+        if not hasattr(self, 'launcher'):
+            return
+        # Remove old launcher commands
+        old_keys = [k for k, v in self.custom_commands.items() if getattr(v, '_is_launcher_cmd', False)]
+        for k in old_keys:
+            del self.custom_commands[k]
+            self.custom_responses.pop(k, None)
+        # Add current ones
+        for item in self.launcher.get_all_items():
+            if item.voice_phrase:
+                resp = f"Launching {item.name}" if item.item_type in ("app", "terminal") else f"Opening {item.name}"
+                def make_launcher(i):
+                    def launch():
+                        self.launcher.launch(i)
+                    launch._is_launcher_cmd = True
+                    return launch
+                callback = make_launcher(item)
+                self.custom_commands[item.voice_phrase.lower()] = callback
+                self.custom_responses[item.voice_phrase.lower()] = resp
+
     # === Layout Commands ===
     def register_layout_commands(self, layout_manager, on_load_callback=None):
         """Register voice commands for all saved layouts"""
@@ -260,10 +292,13 @@ class CommandManager:
         if not hasattr(self, 'layout_manager'):
             return
         # Remove old layout commands
-        self.custom_commands = {k: v for k, v in self.custom_commands.items()
-                               if not getattr(v, '_is_layout_cmd', False)}
+        old_keys = [k for k, v in self.custom_commands.items() if getattr(v, '_is_layout_cmd', False)]
+        for k in old_keys:
+            del self.custom_commands[k]
+            self.custom_responses.pop(k, None)
         # Add new ones
         for name in self.layout_manager.get_layout_names():
+            response = f"Swapping to {name} layout"
             def make_loader(layout_name):
                 def load():
                     result = self.layout_manager.load_layout(layout_name)
@@ -274,3 +309,5 @@ class CommandManager:
             loader = make_loader(name)
             self.custom_commands[f"{name} layout".lower()] = loader
             self.custom_commands[name.lower()] = loader
+            self.custom_responses[f"{name} layout".lower()] = response
+            self.custom_responses[name.lower()] = response

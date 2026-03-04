@@ -3,8 +3,11 @@ import pyttsx3
 class TextToSpeech:
     """Text-to-speech - creates fresh engine each call to avoid threading issues"""
 
+    def __init__(self):
+        self.enabled = True
+
     def speak(self, text: str):
-        if not text:
+        if not text or not self.enabled:
             return
         try:
             engine = pyttsx3.init()

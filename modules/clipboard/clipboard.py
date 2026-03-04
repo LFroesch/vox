@@ -25,10 +25,12 @@ class ClipboardEntry:
 class ClipboardManager:
     """Manages clipboard history and quick paste"""
 
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
     def __init__(self):
         self.config = get_config()
         self.history: List[ClipboardEntry] = []
-        self.max_history = self.config.get('clipboard', 'history_size', default=50)
+        self.max_history = self.config.get('clipboard', 'history_size', default=200)
         self.history_file = self.config.get_data_path("clipboard_history.json")
 
         self._last_content = ""
@@ -50,8 +52,15 @@ class ClipboardManager:
                 self.history = []
 
     def _save_history(self):
-        """Save history to file"""
+        """Save history to file, truncating oldest entries if over 5MB"""
         try:
+            # Truncate until under size limit
+            while self.history:
+                data = json.dumps([entry.to_dict() for entry in self.history], indent=2)
+                if len(data.encode('utf-8')) <= self.MAX_FILE_SIZE:
+                    break
+                self.history.pop()  # Remove oldest entry
+
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump([entry.to_dict() for entry in self.history], f, indent=2)
         except Exception as e:
@@ -103,7 +112,7 @@ class ClipboardManager:
 
         entry = ClipboardEntry(
             content=content,
-            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            timestamp=datetime.now().strftime("%Y-%m-%d ") + datetime.now().strftime("%I:%M:%S %p").lstrip("0"),
             preview=preview
         )
 

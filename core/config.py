@@ -35,9 +35,19 @@ class Config:
             "launcher": {
                 "items": []
             },
+            "favorites": {
+                "layouts": [],
+                "launchers": []
+            },
             "ui": {
                 "theme": "dark",
-                "start_minimized": False
+                "start_minimized": False,
+                "close_behavior": "ask",
+                "widget_enabled": True,
+                "widget_visible_in_tray": False,
+                "ui_scale": "Medium",
+                "widget_size": "Medium",
+                "voice_response": True
             }
         }
 

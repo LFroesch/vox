@@ -1,14 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-# vox.spec - PyInstaller spec file for vox
+# vox.spec - PyInstaller spec file for vox (PyQt6)
 
 import sys
+import os
 from pathlib import Path
 
 block_cipher = None
-
-# Get customtkinter path for assets
-import customtkinter
-ctk_path = Path(customtkinter.__file__).parent
 
 # Get vosk path for DLLs
 try:
@@ -22,16 +19,16 @@ a = Analysis(
     pathex=[],
     binaries=[(str(vosk_path), 'vosk')] if vosk_path else [],
     datas=[
-        # Include customtkinter assets
-        (str(ctk_path), 'customtkinter'),
         # Include icon
         ('myicon.ico', '.'),
     ],
     hiddenimports=[
-        # CustomTkinter
-        'customtkinter',
-        'PIL',
-        'PIL._tkinter_finder',
+        # PyQt6
+        'PyQt6',
+        'PyQt6.QtWidgets',
+        'PyQt6.QtCore',
+        'PyQt6.QtGui',
+        'PyQt6.sip',
         # Windows APIs
         'win32api',
         'win32con',
@@ -59,7 +56,12 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter',
+        'customtkinter',
+        'PIL',
+        'pystray',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
