@@ -1,7 +1,11 @@
+import re
 import subprocess
 import os
 import keyboard
 import psutil
+import webbrowser
+import urllib.parse
+from difflib import SequenceMatcher
 from typing import Dict, Any, Optional, Callable
 
 # Command modules configuration
@@ -66,18 +70,6 @@ COMMAND_MODULES = {
                 "phrases": ["open browser", "open chrome", "start browser", "open brave", "launch browser"],
                 "description": "Opens the web browser"
             },
-            "refresh": {
-                "phrases": ["refresh", "reload page", "refresh page"],
-                "description": "Refreshes the current page"
-            },
-            "new_tab": {
-                "phrases": ["new tab", "open new tab"],
-                "description": "Opens a new browser tab"
-            },
-            "close_tab": {
-                "phrases": ["close tab", "close this tab"],
-                "description": "Closes current browser tab"
-            }
         }
     }
 }
@@ -95,9 +87,7 @@ COMMAND_RESPONSES = {
     "system_mute": "Muted",
     "system_screenshot": "Taking screenshot",
     "browser_open_browser": "Opening browser",
-    "browser_refresh": "Refreshing",
-    "browser_new_tab": "New tab",
-    "browser_close_tab": "Closing tab",
+    "browser_search": "Searching",
 }
 
 
@@ -132,6 +122,13 @@ class CommandManager:
         """Execute a voice command. Returns response to speak."""
         text_lower = text.lower().strip()
 
+        # Check for search query before phrase matching
+        search_query = self._extract_search_query(text_lower)
+        if search_query is not None:
+            success = self.browser_search(search_query)
+            self._notify_executed(text, success)
+            return {"executed": True, "success": success, "type": "builtin", "response": f"Searching for {search_query}"}
+
         # Check custom commands first
         if text_lower in self.custom_commands:
             try:
@@ -160,34 +157,170 @@ class CommandManager:
                     self._notify_executed(text, False)
                     return {"executed": True, "success": False, "type": "builtin", "response": "Sorry, that failed"}
 
+        # Fuzzy match built-in commands
+        match = self._fuzzy_match(text_lower)
+        if match:
+            handler_name, source = match
+            if source == "custom":
+                try:
+                    self.custom_commands[handler_name]()
+                    response = self.custom_responses.get(handler_name, "Done")
+                    self._notify_executed(text, True)
+                    return {"executed": True, "success": True, "type": "custom", "response": response}
+                except Exception as e:
+                    print(f"Custom command error: {e}")
+                    self._notify_executed(text, False)
+                    return {"executed": True, "success": False, "type": "custom", "response": "Sorry, that failed"}
+            else:
+                handler = getattr(self, handler_name, None)
+                if handler:
+                    try:
+                        response = self.responses.get(handler_name, "Done")
+                        success = handler()
+                        self._notify_executed(text, success)
+                        return {"executed": True, "success": success, "type": "builtin", "response": response}
+                    except Exception as e:
+                        print(f"Command error ({handler_name}): {e}")
+                        self._notify_executed(text, False)
+                        return {"executed": True, "success": False, "type": "builtin", "response": "Sorry, that failed"}
+
         return {"executed": False, "success": False, "type": None, "response": None}
+
+    def _fuzzy_match(self, text: str):
+        """Find best matching phrase via token overlap when exact match fails.
+        Returns (handler_name, source) or None. source is 'builtin' or 'custom'."""
+        STOP_WORDS = {"the", "a", "an", "this", "that", "some", "my", "please", "can", "you", "to", "do", "it", "is"}
+        input_tokens = set(text.lower().split()) - STOP_WORDS
+        if not input_tokens:
+            return None
+
+        best_score = 0.0
+        best_match = None
+
+        # Score built-in commands
+        for phrase, handler_name in self.command_map.items():
+            phrase_tokens = set(phrase.split()) - STOP_WORDS
+            if not phrase_tokens:
+                continue
+            overlap = len(input_tokens & phrase_tokens)
+            score = overlap / len(phrase_tokens)
+            if score > best_score:
+                best_score = score
+                best_match = (handler_name, "builtin")
+
+        # Score custom commands
+        for phrase in self.custom_commands:
+            phrase_tokens = set(phrase.split()) - STOP_WORDS
+            if not phrase_tokens:
+                continue
+            overlap = len(input_tokens & phrase_tokens)
+            score = overlap / len(phrase_tokens)
+            if score > best_score:
+                best_score = score
+                best_match = (phrase, "custom")
+
+        # Require all key tokens of the phrase to be present (score == 1.0)
+        # or at least 0.75 for longer phrases (3+ tokens)
+        if best_match:
+            if best_score >= 1.0:
+                return best_match
+            if best_score >= 0.75:
+                # Only allow partial match for phrases with 3+ key tokens
+                phrase = None
+                if best_match[1] == "builtin":
+                    for p, h in self.command_map.items():
+                        if h == best_match[0]:
+                            phrase = p
+                            break
+                else:
+                    phrase = best_match[0]
+                if phrase and len(set(phrase.split()) - STOP_WORDS) >= 3:
+                    return best_match
+
+        # Phonetic/similarity fallback — catches near-misses like "necks song" → "next song"
+        best_sim = 0.0
+        best_sim_match = None
+        for phrase, handler_name in self.command_map.items():
+            ratio = SequenceMatcher(None, text, phrase).ratio()
+            if ratio > best_sim:
+                best_sim = ratio
+                best_sim_match = (handler_name, "builtin")
+        for phrase in self.custom_commands:
+            ratio = SequenceMatcher(None, text, phrase).ratio()
+            if ratio > best_sim:
+                best_sim = ratio
+                best_sim_match = (phrase, "custom")
+        if best_sim >= 0.8:
+            return best_sim_match
+
+        return None
 
     def _notify_executed(self, command: str, success: bool):
         if self.on_command_executed:
             self.on_command_executed(command, success)
 
+    def _extract_search_query(self, text: str) -> Optional[str]:
+        """Extract search query from natural language, or None if not a search request."""
+        strip_prefixes = [
+            "search for ", "search ", "google ", "look up ",
+            "find me ", "find ",
+            "define ", "definition of ",
+        ]
+        keep_prefixes = [
+            "what is ", "what are ", "who is ", "who are ",
+            "where is ", "where are ", "when is ", "when are ",
+            "how to ", "how do ", "how does ", "why is ", "why does ",
+            "what is the meaning of ",
+        ]
+        # Wrap-around patterns: trigger words surround the query
+        wrap_patterns = [
+            r"^what (?:does|do) (.+?) mean$",
+            r"^what (?:does|do) (.+?) stand for$",
+            r"^what(?:'s| is) the (?:meaning|definition) of (.+)$",
+        ]
+        for prefix in strip_prefixes:
+            if text.startswith(prefix):
+                query = text[len(prefix):].strip()
+                if query:
+                    return query
+        for prefix in keep_prefixes:
+            if text.startswith(prefix):
+                return text.strip()
+        for pattern in wrap_patterns:
+            m = re.match(pattern, text)
+            if m:
+                return f"what does {m.group(1)} mean"
+        return None
+
+    def browser_search(self, query: str) -> bool:
+        url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}"
+        webbrowser.open(url)
+        return True
+
     # === Spotify Commands ===
+    _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
     def spotify_open(self) -> bool:
         try:
-            subprocess.run(["start", "spotify:"], shell=True, check=True)
+            subprocess.run(["start", "spotify:"], shell=True, check=True, creationflags=self._NO_WINDOW)
             return True
-        except:
+        except Exception:
             paths = [
                 os.path.expanduser("~\\AppData\\Roaming\\Spotify\\Spotify.exe"),
                 "C:\\Program Files\\Spotify\\Spotify.exe",
             ]
             for path in paths:
                 if os.path.exists(path):
-                    subprocess.run([path])
+                    subprocess.Popen([path], creationflags=self._NO_WINDOW)
                     return True
         return False
 
     def spotify_close(self) -> bool:
         try:
             subprocess.run(['taskkill', '/f', '/im', 'Spotify.exe'],
-                         capture_output=True)
+                         capture_output=True, creationflags=self._NO_WINDOW)
             return True
-        except:
+        except Exception:
             return False
 
     def spotify_play_pause(self) -> bool:
@@ -233,24 +366,12 @@ class CommandManager:
             ]
             for path in paths:
                 if os.path.exists(path):
-                    subprocess.run([path])
+                    subprocess.Popen([path])
                     return True
-            subprocess.run(["start", "http://"], shell=True)
+            subprocess.run(["start", "http://"], shell=True, creationflags=self._NO_WINDOW)
             return True
-        except:
+        except Exception:
             return False
-
-    def browser_refresh(self) -> bool:
-        keyboard.send('f5')
-        return True
-
-    def browser_new_tab(self) -> bool:
-        keyboard.send('ctrl+t')
-        return True
-
-    def browser_close_tab(self) -> bool:
-        keyboard.send('ctrl+w')
-        return True
 
     # === Launcher Commands ===
     def register_launcher_commands(self, launcher):
@@ -277,8 +398,14 @@ class CommandManager:
                     launch._is_launcher_cmd = True
                     return launch
                 callback = make_launcher(item)
-                self.custom_commands[item.voice_phrase.lower()] = callback
-                self.custom_responses[item.voice_phrase.lower()] = resp
+                # Register exact voice phrase + prefix variants (like layouts)
+                phrases = [item.voice_phrase.lower()]
+                name_lower = item.name.lower()
+                for prefix in ("open", "launch", "start", "run"):
+                    phrases.append(f"{prefix} {name_lower}")
+                for phrase in set(phrases):
+                    self.custom_commands[phrase] = callback
+                    self.custom_responses[phrase] = resp
 
     # === Layout Commands ===
     def register_layout_commands(self, layout_manager, on_load_callback=None):
@@ -307,7 +434,10 @@ class CommandManager:
                 load._is_layout_cmd = True
                 return load
             loader = make_loader(name)
-            self.custom_commands[f"{name} layout".lower()] = loader
-            self.custom_commands[name.lower()] = loader
-            self.custom_responses[f"{name} layout".lower()] = response
-            self.custom_responses[name.lower()] = response
+            # Register: "coding", "coding layout", "swap coding", "launch coding", etc.
+            phrases = [name.lower(), f"{name} layout".lower()]
+            for prefix in ("swap", "launch", "load", "switch to", "open"):
+                phrases.append(f"{prefix} {name}".lower())
+            for phrase in phrases:
+                self.custom_commands[phrase] = loader
+                self.custom_responses[phrase] = response

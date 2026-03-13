@@ -1,5 +1,7 @@
 import json
 import subprocess
+import threading
+import time
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from core.config import get_config
@@ -72,6 +74,9 @@ class LayoutManager:
         layout_data = self.layouts[name]
         current_windows = self.wm.get_all_windows_with_minimized()
 
+        # Snapshot all existing hwnds so launched apps can be distinguished
+        existing_hwnds = {w.hwnd for w in current_windows}
+
         windows_by_app: Dict[str, List] = {}
         for w in current_windows:
             app_type = self.wm.get_app_type(w)
@@ -106,6 +111,15 @@ class LayoutManager:
                     try:
                         subprocess.Popen([window_data['exe_path']])
                         launched.append(app_type)
+                        # Background thread: wait for window to appear then position it
+                        pos = window_data['position']
+                        saved_borderless = window_data.get('is_borderless', False)
+                        t = threading.Thread(
+                            target=self._wait_and_position,
+                            args=(app_type, pos, saved_borderless, existing_hwnds),
+                            daemon=True,
+                        )
+                        t.start()
                     except Exception:
                         failed.append(f"{app_type} (launch failed)")
                 else:
@@ -118,6 +132,21 @@ class LayoutManager:
             "failed": failed,
             "launched": launched
         }
+
+    def _wait_and_position(self, app_type: str, pos: dict, borderless: bool,
+                           existing_hwnds: set, timeout: float = 12.0):
+        """Poll for a newly launched window by app_type and reposition it."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            time.sleep(0.5)
+            for w in self.wm.get_all_windows_with_minimized():
+                if self.wm.get_app_type(w) == app_type and w.hwnd not in existing_hwnds:
+                    self.wm.restore_window(w.hwnd)
+                    if self.wm.is_borderless(w.hwnd) != borderless:
+                        self.wm.set_borderless(w.hwnd, borderless)
+                    self.wm.move_window(w.hwnd, pos['x'], pos['y'], pos['width'], pos['height'])
+                    return
+        print(f"[layouts] Timed out waiting for {app_type} window")
 
     def delete_layout(self, name: str) -> bool:
         """Delete a saved layout"""

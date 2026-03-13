@@ -9,7 +9,13 @@ class VoiceRecognizer:
 
     def __init__(self):
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
+        self.mic_available = False
+        try:
+            self.microphone = sr.Microphone()
+            self.mic_available = True
+        except Exception as e:
+            print(f"Microphone not available: {e}")
+            self.microphone = None
         self.is_recording = False
         self.on_result: Optional[Callable[[str], None]] = None
         self.on_error: Optional[Callable[[str], None]] = None
@@ -20,9 +26,10 @@ class VoiceRecognizer:
 
         config = get_config()
         self.energy_threshold = config.get('voice', 'energy_threshold', default=300)
-        self.pause_threshold = config.get('voice', 'pause_threshold', default=1.5)
+        self.pause_threshold = config.get('voice', 'pause_threshold', default=2.5)
         self.phrase_time_limit = config.get('voice', 'phrase_time_limit', default=60)
-        self._calibrate()
+        if self.mic_available:
+            self._calibrate()
 
     def _calibrate(self):
         """Calibrate microphone for ambient noise"""
@@ -43,6 +50,9 @@ class VoiceRecognizer:
 
     def start_recording(self):
         """Start voice recording"""
+        if not self.mic_available:
+            self._notify_error("Mic unavailable — check audio input device")
+            return
         if self.is_recording or self._calibrating or self._mic_busy:
             return
 
@@ -93,18 +103,34 @@ class VoiceRecognizer:
             self.is_recording = False
 
     def _transcribe(self, audio):
-        """Transcribe audio to text via Google STT"""
+        """Transcribe audio to text via Google STT, returning alternatives"""
         try:
-            text = self.recognizer.recognize_google(audio)
+            raw = self.recognizer.recognize_google(audio, show_all=True)
+            if not raw or not isinstance(raw, dict):
+                self._notify_status("Didn't catch that")
+                if self.on_recognition_failed:
+                    self.on_recognition_failed("Didn't catch that")
+                self.is_recording = False
+                return
+
+            alts = raw.get("alternative", [])
+            texts = [a["transcript"] for a in alts if a.get("transcript")]
+            if not texts:
+                self._notify_status("Didn't catch that")
+                if self.on_recognition_failed:
+                    self.on_recognition_failed("Didn't catch that")
+                self.is_recording = False
+                return
+
             self._notify_status("Recognized")
             if self.on_result:
-                self.on_result(text)
+                self.on_result(texts)
         except sr.UnknownValueError:
             self._notify_status("Didn't catch that")
             if self.on_recognition_failed:
                 self.on_recognition_failed("Didn't catch that")
         except sr.RequestError as e:
-            self._notify_error(f"Google API error: {e}")
+            self._notify_error(f"Google STT unavailable (no internet?): {e}")
             if self.on_recognition_failed:
                 self.on_recognition_failed("API error")
         self.is_recording = False

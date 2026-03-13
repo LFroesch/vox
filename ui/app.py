@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QMessageBox, QDialog, QScrollArea,
     QCheckBox, QApplication, QSystemTrayIcon, QMenu,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QIcon, QAction
 
 from core.config import get_config
@@ -38,7 +38,7 @@ class VoxApp(QMainWindow):
     """Main vox application window."""
 
     # Signals for thread-safe UI updates from background threads
-    voice_result_signal = pyqtSignal(str)
+    voice_result_signal = pyqtSignal(object)
     voice_status_signal = pyqtSignal(str)
     voice_error_signal = pyqtSignal(str)
     clipboard_signal = pyqtSignal(object)
@@ -102,7 +102,7 @@ class VoxApp(QMainWindow):
         self.restore_signal.connect(self._do_restore)
 
         # Wire callbacks → emit signals
-        self.voice.on_result = lambda text: self.voice_result_signal.emit(text)
+        self.voice.on_result = lambda texts: self.voice_result_signal.emit(texts)
         self.voice.on_status = lambda text: self.voice_status_signal.emit(text)
         self.voice.on_error = lambda text: self.voice_error_signal.emit(text)
         self.voice.on_recognition_failed = lambda msg="Didn't catch that": self.tts.speak(msg)
@@ -118,9 +118,15 @@ class VoxApp(QMainWindow):
             self._show_main_window,
             self._get_widget_actions,
             widget_size=self.config.get('ui', 'widget_size', default='Medium'),
+            dismiss_reminder_cb=self._dismiss_reminder_from_widget,
         )
-        if not self.config.get('ui', 'widget_enabled', default=True):
-            self.widget.hide()
+        if self.config.get('ui', 'widget_enabled', default=True):
+            self.widget.show()
+
+        # Show mic status if unavailable
+        if not self.voice.mic_available:
+            self.record_btn.setEnabled(False)
+            self.set_status("Mic unavailable — check audio input", COLORS["error"])
 
         # Tray icon
         self._tray_icon = None
@@ -132,6 +138,8 @@ class VoxApp(QMainWindow):
         # Start modules
         self._setup_hotkeys()
         self.clipboard_mgr.start_monitoring()
+        self.reminders.start()  # Start after UI is fully built
+        self.push_reminders_to_ui()  # Initial widget state
 
     # ── Icon helper ──
 
@@ -210,11 +218,11 @@ class VoxApp(QMainWindow):
         h_layout.setContentsMargins(16, 0, 12, 0)
 
         title = QLabel("vox")
-        title.setFont(font(26, "bold"))
+        title.setFont(font(50, "bold"))
         title.setStyleSheet(
             f"color: {COLORS['text']}; "
-            f"letter-spacing: 4px; "
-            f"padding: 0 4px;"
+            f"letter-spacing: 3px; "
+            f"padding: 0 3px;"
         )
         h_layout.addWidget(title)
 
@@ -230,7 +238,7 @@ class VoxApp(QMainWindow):
         h_layout.addWidget(self.status_label, stretch=1)
 
         self.record_btn = QPushButton(f"Record [{voice_key}]")
-        self.record_btn.setFixedSize(120, 34)
+        self.record_btn.setFixedSize(150, 34)
         self.record_btn.setProperty("accent", True)
         self.record_btn.setFont(font(13, "bold"))
         self.record_btn.clicked.connect(self.voice.toggle_recording)
@@ -276,6 +284,16 @@ class VoxApp(QMainWindow):
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"color: {color or COLORS['text']};")
         self.widget.set_status(text, color)
+
+    def push_reminders_to_ui(self):
+        """Refresh the reminders page and widget."""
+        if hasattr(self, 'page_reminders'):
+            self.page_reminders.refresh_list()
+        self.widget.update_reminders(self.reminders.get_active())
+
+    def _dismiss_reminder_from_widget(self, eid):
+        self.reminders.dismiss(eid)
+        self.push_reminders_to_ui()
 
     def mark_dirty(self, *names):
         for n in names:
@@ -510,8 +528,13 @@ class VoxApp(QMainWindow):
 
     # ── Voice callbacks (run on main thread via signals) ──
 
-    def _handle_voice_result(self, text: str):
-        timestamp = fmt_time()
+    def _handle_voice_result(self, alternatives):
+        # Accept list of alternative transcriptions or a single string
+        if isinstance(alternatives, str):
+            alternatives = [alternatives]
+        text = alternatives[0]  # best transcription (used for free-text like notes/reminders)
+
+        timestamp = fmt_time(seconds=False)
         self.last_command = text
         response_to_speak = None
 
@@ -526,16 +549,25 @@ class VoxApp(QMainWindow):
             result = {"executed": True, "success": True, "type": "reminder"}
             response_to_speak = reminder_response
         else:
-            result = self.commands.execute(text)
-            if result["executed"]:
-                response_to_speak = result.get("response")
+            # Try each alternative transcription for command matching
+            result = {"executed": False, "success": False, "type": None, "response": None}
+            for alt in alternatives:
+                result = self.commands.execute(alt)
+                if result["executed"]:
+                    text = alt  # use the alternative that matched
+                    response_to_speak = result.get("response")
+                    break
 
             if not result["executed"]:
-                item = self.launcher.get_by_voice_phrase(text)
-                if item:
-                    self.launcher.launch(item)
-                    result = {"executed": True, "success": True, "type": "launcher"}
-                    response_to_speak = f"Launching {item.name}"
+                # Try launcher fallback with each alternative
+                for alt in alternatives:
+                    item = self.launcher.get_by_voice_phrase(alt)
+                    if item:
+                        self.launcher.launch(item)
+                        result = {"executed": True, "success": True, "type": "launcher"}
+                        text = alt
+                        response_to_speak = f"Launching {item.name}"
+                        break
 
             if not result["executed"]:
                 response_to_speak = "Command not known"
@@ -583,13 +615,16 @@ class VoxApp(QMainWindow):
             self._dirty["clipboard"] = True
 
     def _handle_reminder_fire(self, entry: ReminderEntry):
-        alerts = entry.alerts if isinstance(entry.alerts, dict) else {}
-        if alerts.get("tts", False):
-            self.tts.speak(entry.message)
-        if alerts.get("tray", False):
-            self._show_win_notification("vox", entry.message)
-        self.page_reminders.refresh_list()
-        self.set_status(f"⏰ {entry.message}", COLORS["warning"])
+        try:
+            if self.config.get('notifications', 'sound', default=True):
+                self.reminders._play_audio()
+            if self.config.get('notifications', 'tts', default=True):
+                self.tts.speak(entry.message)
+            if self.config.get('notifications', 'tray', default=True):
+                self._show_win_notification("vox", entry.message)
+            self.push_reminders_to_ui()
+        except Exception:
+            pass
 
     def _on_layout_loaded(self, name: str, result: dict):
         msg = f"Layout '{name}': {result['applied']}/{result['total']}"
@@ -607,11 +642,16 @@ class VoxApp(QMainWindow):
 
     def _save_note(self, text: str):
         now = datetime.now()
-        timestamp = f"{now.strftime('%Y-%m-%d')} {fmt_time(now, seconds=False)}"
-        entry = f"\n- [{timestamp}] {text}"
+        timestamp = f"{now.strftime('%Y-%m-%d')} | {fmt_time(now, seconds=False)}"
+        entry = f"[{timestamp}] {text}"
         try:
-            with open(self._notes_path, "a", encoding="utf-8") as f:
-                f.write(entry)
+            existing = ""
+            if self._notes_path.exists():
+                existing = self._notes_path.read_text(encoding="utf-8")
+            with open(self._notes_path, "w", encoding="utf-8") as f:
+                if existing.strip():
+                    f.write(existing.rstrip("\n") + "\n")
+                f.write(entry + "\n")
         except Exception as e:
             print(f"Failed to save note: {e}")
         self.page_home.append_note(entry)
@@ -626,6 +666,7 @@ class VoxApp(QMainWindow):
             _, label, seconds = parsed
             self.reminders.create_timer(label, seconds)
             self.page_reminders.refresh_list()
+            self.push_reminders_to_ui()
             m, s = divmod(seconds, 60)
             h, m = divmod(m, 60)
             if h:
@@ -636,12 +677,28 @@ class VoxApp(QMainWindow):
                 return f"Timer set for {s} second{'s' if s != 1 else ''}"
         elif parsed[0] == 'reminder':
             _, label, message, time_str = parsed
-            entry = self.reminders.create_reminder(label, message, time_str)
+            entry = self.reminders.create_reminder(label, time_str, message=message)
             if entry is None:
                 return "Couldn't parse that time"
             self.page_reminders.refresh_list()
+            self.push_reminders_to_ui()
             fire_dt = datetime.fromtimestamp(entry.fire_at)
             return f"Reminder set for {fire_dt.strftime('%I:%M %p').lstrip('0')}"
+        elif parsed[0] == 'recurring':
+            _, label, recur = parsed
+            # Resolve time_str → HH:MM for non-interval types
+            if recur.get("type") != "interval" and "time_str" in recur:
+                fire_ts = self.reminders._parse_time(recur["time_str"])
+                if fire_ts is None:
+                    return "Couldn't parse that time"
+                fire_dt = datetime.fromtimestamp(fire_ts)
+                recur = {**recur, "time": f"{fire_dt.hour:02d}:{fire_dt.minute:02d}"}
+                del recur["time_str"]
+            self.reminders.create_recurring(label, label, recur)
+            self.page_reminders.refresh_list()
+            self.push_reminders_to_ui()
+            from ui.pages.reminders import _recur_desc
+            return f"Recurring reminder set: {_recur_desc(recur)}"
         return None
 
     # ── Notification ──

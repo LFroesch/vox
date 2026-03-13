@@ -1,5 +1,6 @@
 """Settings page — General, Appearance, Widget, Advanced sections."""
 
+import os
 import subprocess
 import sys
 import threading
@@ -10,7 +11,73 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from ui.styles import COLORS, font, R
+from ui.styles import COLORS, font, R, fix_combo_popup
+
+
+_STARTUP_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_STARTUP_REG_NAME = "vox"
+
+
+def _is_startup_enabled() -> bool:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _STARTUP_REG_KEY) as key:
+            winreg.QueryValueEx(key, _STARTUP_REG_NAME)
+            return True
+    except Exception:
+        return False
+
+
+def _set_startup(enabled: bool):
+    try:
+        import winreg
+        if enabled:
+            exe = sys.executable
+            script = os.path.abspath(sys.argv[0])
+            if exe.lower().endswith(('python.exe', 'pythonw.exe')):
+                # Use pythonw to avoid console window on startup
+                pythonw = exe.lower().replace('python.exe', 'pythonw.exe')
+                pythonw = os.path.join(os.path.dirname(exe), 'pythonw.exe')
+                if os.path.exists(pythonw):
+                    exe = pythonw
+                cmd = f'"{exe}" "{script}"'
+            else:
+                cmd = f'"{exe}"'
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _STARTUP_REG_KEY, 0,
+                                winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, _STARTUP_REG_NAME, 0, winreg.REG_SZ, cmd)
+        else:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _STARTUP_REG_KEY, 0,
+                                winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, _STARTUP_REG_NAME)
+    except Exception as e:
+        print(f"Startup registry error: {e}")
+
+
+def _detect_wsl_distros() -> list[str]:
+    """Return list of installed WSL distro names."""
+    try:
+        result = subprocess.run(
+            ['wsl.exe', '--list', '--quiet'],
+            capture_output=True, timeout=5,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        raw = result.stdout
+        # WSL outputs UTF-16-LE on Windows; fall back to utf-8
+        for enc in ('utf-16-le', 'utf-8'):
+            try:
+                text = raw.decode(enc)
+                break
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        else:
+            text = raw.decode('utf-8', errors='ignore')
+        # Strip BOM, null chars, whitespace
+        text = text.replace('\x00', '').strip().strip('\ufeff')
+        skip = {'docker-desktop', 'docker-desktop-data'}
+        return [d.strip() for d in text.splitlines() if d.strip() and d.strip().lower() not in skip]
+    except Exception:
+        return []
 
 
 class SettingsPage(QWidget):
@@ -47,6 +114,44 @@ class SettingsPage(QWidget):
         right.addWidget(self._hotkey_btn)
         layout.addWidget(row)
 
+        # Editor
+        row, right = self._setting_row("Editor")
+        self._editor_map = {
+            "system": "System Default", "vscode": "VS Code",
+            "cursor": "Cursor", "notepad": "Notepad",
+        }
+        self._editor_reverse = {v: k for k, v in self._editor_map.items()}
+        current_editor = self.app.config.get('general', 'editor', default='system')
+        self._editor_combo = QComboBox()
+        self._editor_combo.addItems(list(self._editor_map.values()))
+        self._editor_combo.setCurrentText(self._editor_map.get(current_editor, "System Default"))
+        self._editor_combo.setFixedWidth(160)
+        self._editor_combo.currentTextChanged.connect(
+            lambda v: self.app.config.set('general', 'editor',
+                                          value=self._editor_reverse.get(v, "system"))
+        )
+        right.addWidget(self._editor_combo)
+        layout.addWidget(row)
+
+        # WSL Distro
+        row, right = self._setting_row("WSL Distro")
+        wsl_hint = QLabel("blank = default")
+        wsl_hint.setFont(font(11))
+        wsl_hint.setStyleSheet(f"color: {COLORS['text_muted']};")
+        self._wsl_distro = QComboBox()
+        self._wsl_distro.setEditable(True)
+        distros = _detect_wsl_distros()
+        self._wsl_distro.addItems([""] + distros)
+        current_distro = self.app.config.get('general', 'wsl_distro', default='')
+        self._wsl_distro.setCurrentText(current_distro)
+        self._wsl_distro.setFixedWidth(160)
+        self._wsl_distro.currentTextChanged.connect(
+            lambda v: self.app.config.set('general', 'wsl_distro', value=v.strip())
+        )
+        right.addWidget(wsl_hint)
+        right.addWidget(self._wsl_distro)
+        layout.addWidget(row)
+
         # Close Behavior
         row, right = self._setting_row("Close Behavior")
         self._close_map = {"ask": "Always Ask", "minimize": "Minimize to Tray", "quit": "Quit"}
@@ -63,12 +168,50 @@ class SettingsPage(QWidget):
         right.addWidget(self._close_combo)
         layout.addWidget(row)
 
+        # Start with Windows
+        row, right = self._setting_row("Start with Windows")
+        self._startup_cb = QCheckBox()
+        self._startup_cb.setChecked(_is_startup_enabled())
+        self._startup_cb.stateChanged.connect(lambda: _set_startup(self._startup_cb.isChecked()))
+        right.addWidget(self._startup_cb)
+        layout.addWidget(row)
+
         # Voice Response
         row, right = self._setting_row("Voice Response")
         self._voice_resp_cb = QCheckBox()
         self._voice_resp_cb.setChecked(self.app.config.get('ui', 'voice_response', default=True))
         self._voice_resp_cb.stateChanged.connect(self._on_voice_response_toggle)
         right.addWidget(self._voice_resp_cb)
+        layout.addWidget(row)
+
+        # ── NOTIFICATIONS ──
+        layout.addWidget(self._section_label("NOTIFICATIONS"))
+
+        row, right = self._setting_row("Sound")
+        self._notif_sound = QCheckBox()
+        self._notif_sound.setChecked(self.app.config.get('notifications', 'sound', default=True))
+        self._notif_sound.stateChanged.connect(
+            lambda: self.app.config.set('notifications', 'sound', value=self._notif_sound.isChecked())
+        )
+        right.addWidget(self._notif_sound)
+        layout.addWidget(row)
+
+        row, right = self._setting_row("TTS")
+        self._notif_tts = QCheckBox()
+        self._notif_tts.setChecked(self.app.config.get('notifications', 'tts', default=True))
+        self._notif_tts.stateChanged.connect(
+            lambda: self.app.config.set('notifications', 'tts', value=self._notif_tts.isChecked())
+        )
+        right.addWidget(self._notif_tts)
+        layout.addWidget(row)
+
+        row, right = self._setting_row("Tray Notification")
+        self._notif_tray = QCheckBox()
+        self._notif_tray.setChecked(self.app.config.get('notifications', 'tray', default=True))
+        self._notif_tray.stateChanged.connect(
+            lambda: self.app.config.set('notifications', 'tray', value=self._notif_tray.isChecked())
+        )
+        right.addWidget(self._notif_tray)
         layout.addWidget(row)
 
         # ── APPEARANCE ──
@@ -80,7 +223,7 @@ class SettingsPage(QWidget):
         hint.setFont(font(11))
         hint.setStyleSheet(f"color: {COLORS['text_muted']};")
         self._scale_combo = QComboBox()
-        self._scale_combo.addItems(["Small", "Medium", "Large", "XL"])
+        self._scale_combo.addItems(["Small", "Medium", "Large"])
         current_scale = self.app.config.get('ui', 'ui_scale', default='Medium')
         self._scale_combo.setCurrentText(current_scale)
         self._scale_combo.setFixedWidth(160)
@@ -93,18 +236,12 @@ class SettingsPage(QWidget):
 
         # Widget Size
         row, right = self._setting_row("Widget Size")
-        hint2 = QLabel("Requires restart")
-        hint2.setFont(font(11))
-        hint2.setStyleSheet(f"color: {COLORS['text_muted']};")
         self._wsize_combo = QComboBox()
         self._wsize_combo.addItems(["Small", "Medium", "Large"])
         current_wsize = self.app.config.get('ui', 'widget_size', default='Medium')
         self._wsize_combo.setCurrentText(current_wsize)
         self._wsize_combo.setFixedWidth(160)
-        self._wsize_combo.currentTextChanged.connect(
-            lambda v: self.app.config.set('ui', 'widget_size', value=v)
-        )
-        right.addWidget(hint2)
+        self._wsize_combo.currentTextChanged.connect(self._on_widget_size_change)
         right.addWidget(self._wsize_combo)
         layout.addWidget(row)
 
@@ -145,6 +282,11 @@ class SettingsPage(QWidget):
 
         layout.addStretch()
 
+        # Fix combo popup z-order
+        for combo in [self._editor_combo, self._wsl_distro, self._close_combo,
+                       self._scale_combo, self._wsize_combo]:
+            fix_combo_popup(combo)
+
     # ── Helpers ──
 
     def _section_label(self, text):
@@ -155,8 +297,7 @@ class SettingsPage(QWidget):
 
     def _setting_row(self, label_text):
         """Returns (row_widget, right_layout) — add controls to right_layout."""
-        row = QFrame()
-        row.setStyleSheet("QFrame { background: transparent; }")
+        row = QWidget()
         h = QHBoxLayout(row)
         h.setContentsMargins(8, 3, 8, 3)
         lbl = QLabel(label_text)
@@ -214,17 +355,32 @@ class SettingsPage(QWidget):
         else:
             self.app.widget.hide()
 
+    def _on_widget_size_change(self, v: str):
+        self.app.config.set('ui', 'widget_size', value=v)
+        if self.app.widget:
+            self.app.widget.resize_to(v)
+
+    def _get_editor_cmd(self):
+        editor = self.app.config.get('general', 'editor', default='system')
+        return {"vscode": "code", "cursor": "cursor", "notepad": "notepad"}.get(editor)
+
     def _open_config_file(self):
-        config_file = self.app.config.config_file
-        if sys.platform == "win32":
+        config_file = str(self.app.config.config_file)
+        cmd = self._get_editor_cmd()
+        if cmd:
+            subprocess.Popen([cmd, config_file])
+        elif sys.platform == "win32":
             import os
-            os.startfile(str(config_file))
+            os.startfile(config_file)
         else:
-            subprocess.run(["xdg-open", str(config_file)])
+            subprocess.run(["xdg-open", config_file])
 
     def _open_config_folder(self):
-        config_dir = self.app.config.config_dir
-        if sys.platform == "win32":
-            subprocess.run(["explorer", str(config_dir)])
+        config_dir = str(self.app.config.config_dir)
+        cmd = self._get_editor_cmd()
+        if cmd:
+            subprocess.Popen([cmd, config_dir])
+        elif sys.platform == "win32":
+            subprocess.run(["explorer", config_dir])
         else:
-            subprocess.run(["xdg-open", str(config_dir)])
+            subprocess.run(["xdg-open", config_dir])

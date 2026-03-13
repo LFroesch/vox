@@ -39,6 +39,9 @@ class Config:
                 "layouts": [],
                 "launchers": []
             },
+            "general": {
+                "editor": "system"
+            },
             "ui": {
                 "theme": "dark",
                 "start_minimized": False,

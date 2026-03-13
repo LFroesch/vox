@@ -1,9 +1,12 @@
 import subprocess
 import os
+import sys
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from core.config import get_config
+
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 @dataclass
@@ -107,18 +110,23 @@ class Launcher:
 
     def _launch_app(self, item: LaunchItem) -> bool:
         """Launch an application"""
-        path = os.path.expandvars(os.path.expanduser(item.path))
-        # .lnk shortcuts and non-exe files need os.startfile or start command
+        path = os.path.normpath(os.path.expandvars(os.path.expanduser(item.path.strip('"'))))
         ext = Path(path).suffix.lower()
+        # .lnk/.url/.appref-ms → always use os.startfile (ShellExecute handles spaces)
         if ext in ('.lnk', '.url', '.appref-ms'):
-            os.startfile(path)
-            return True
+            try:
+                os.startfile(path)
+                return True
+            except OSError:
+                # Fallback to start command if startfile fails
+                subprocess.run(f'start "" "{path}"', shell=True, creationflags=_NO_WINDOW)
+                return True
         if os.path.exists(path):
             args = item.args.split() if item.args else []
             subprocess.Popen([path] + args)
             return True
-        # Try via start command (quote path for spaces)
-        subprocess.run(f'start "" "{item.path}"', shell=True)
+        # Try via start command — use expanded path, quoted for spaces
+        subprocess.run(f'start "" "{path}"', shell=True, creationflags=_NO_WINDOW)
         return True
 
     def _launch_script(self, item: LaunchItem) -> bool:
@@ -135,7 +143,7 @@ class Launcher:
         elif ext == '.ps1':
             subprocess.Popen(['powershell', '-ExecutionPolicy', 'Bypass', '-File', path] + args)
         elif ext == '.bat' or ext == '.cmd':
-            subprocess.Popen([path] + args, shell=True)
+            subprocess.Popen([path] + args, shell=True, creationflags=_NO_WINDOW)
         else:
             subprocess.Popen([path] + args)
         return True
@@ -148,7 +156,7 @@ class Launcher:
 
     def _launch_folder(self, item: LaunchItem) -> bool:
         """Open a folder in explorer"""
-        path = os.path.normpath(os.path.expandvars(os.path.expanduser(item.path)))
+        path = os.path.normpath(os.path.expandvars(os.path.expanduser(item.path.strip('"'))))
         if os.path.isdir(path):
             subprocess.Popen(['explorer', path])
             return True
@@ -156,7 +164,7 @@ class Launcher:
 
     def _launch_command(self, item: LaunchItem) -> bool:
         """Execute a shell command"""
-        subprocess.Popen(item.path, shell=True)
+        subprocess.Popen(item.path, shell=True, creationflags=_NO_WINDOW)
         return True
 
     def _launch_terminal_command(self, item: LaunchItem) -> bool:
@@ -174,6 +182,14 @@ class Launcher:
 
         return self._open_new_terminal_tab(terminal_type, command)
 
+    def _wsl_args(self) -> list:
+        """Return ['wsl.exe'] or ['wsl.exe', '-d', '<distro>'] based on config."""
+        distro = self.config.get('general', 'wsl_distro', default='')
+        base = ['wsl.exe']
+        if distro:
+            base += ['-d', distro]
+        return base
+
     def _open_new_terminal_tab(self, terminal_type: str, command: str) -> bool:
         """Open a new terminal tab with command passed as shell arguments"""
         try:
@@ -183,12 +199,15 @@ class Launcher:
                 else:
                     subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'powershell.exe'])
             elif terminal_type == "wsl":
+                wsl = self._wsl_args()
                 if command:
-                    # Can't use ; in wt.exe args (it's a tab separator) — use && with fallback
-                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'wsl.exe', 'bash', '-lic',
-                                      f'{command} && exec bash -l || exec bash -l'])
+                    # Use sh to bootstrap into user's default $SHELL (zsh/bash/etc)
+                    # cd ~ ensures home dir; can't use ; in wt.exe args (tab separator)
+                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--'] + wsl + ['sh', '-lc',
+                                      f'cd ~ && {command} && exec "$SHELL" -l || exec "$SHELL" -l'])
                 else:
-                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'wsl.exe'])
+                    subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--'] + wsl + ['sh', '-lc',
+                                      'cd ~ && exec "$SHELL" -l'])
             elif terminal_type == "cmd":
                 if command:
                     subprocess.Popen(['wt.exe', '-w', '0', 'nt', '--', 'cmd.exe', '/k', command])
@@ -204,10 +223,11 @@ class Launcher:
                 else:
                     subprocess.Popen(['powershell.exe'])
             elif terminal_type == "wsl":
+                wsl = self._wsl_args()
                 if command:
-                    subprocess.Popen(['wsl.exe', 'bash', '-lic', f'{command}; exec bash -l'])
+                    subprocess.Popen(wsl + ['sh', '-lc', f'cd ~ && {command}; exec "$SHELL" -l'])
                 else:
-                    subprocess.Popen(['wsl.exe'])
+                    subprocess.Popen(wsl + ['sh', '-lc', 'cd ~ && exec "$SHELL" -l'])
             elif terminal_type == "cmd":
                 if command:
                     subprocess.Popen(['cmd.exe', '/k', command])

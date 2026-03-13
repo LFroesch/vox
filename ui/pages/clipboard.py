@@ -14,8 +14,8 @@ from ui.styles import COLORS, font, R, fmt_time
 def _icon_btn(text: str, tooltip: str = "") -> QPushButton:
     """Create a flat icon button with reliable rendering."""
     btn = QPushButton(text)
-    btn.setFixedSize(34, 30)
-    btn.setFont(font(14, family="Segoe UI Emoji"))
+    btn.setMinimumSize(38, 32)
+    btn.setFont(font(14, family="Noto Color Emoji, Segoe UI Emoji, Apple Color Emoji"))
     btn.setProperty("flat", True)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     if tooltip:
@@ -136,13 +136,17 @@ class ClipboardPage(QWidget):
 
     def _build_clip_entry(self, idx, entry, is_expanded):
         frame = QFrame()
+        frame.setObjectName(f"clip_{idx}")
         frame.setStyleSheet(
-            f"QFrame {{ background: {COLORS['surface_light']}; border-radius: {R['md']}px; }}"
+            f"QFrame#clip_{idx} {{ background: {COLORS['surface_light']}; border-radius: {R['md']}px; }}"
         )
+        frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         v = QVBoxLayout(frame)
         v.setContentsMargins(8, 6, 8, 6)
 
         header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
         try:
             ts_dt = datetime.strptime(entry.timestamp, "%Y-%m-%d %I:%M:%S %p")
             ts = fmt_time(ts_dt, seconds=False)
@@ -156,30 +160,44 @@ class ClipboardPage(QWidget):
         toggle = "▾" if is_expanded else "▸"
         preview = entry.preview[:80].replace("\n", " ")
         text_btn = QPushButton(f"{toggle}  {preview}")
-        text_btn.setFont(font(13))
+        text_btn.setFont(font(14, family="Segoe UI Emoji"))
         text_btn.setProperty("flat", True)
-        text_btn.setStyleSheet(f"text-align: left; color: {COLORS['text']};")
+        text_btn.setStyleSheet(f"text-align: left; color: {COLORS['text']}; padding: 2px 4px;")
         text_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        text_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        text_btn.setFixedHeight(30)
+        text_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         text_btn.clicked.connect(lambda _=False, i=idx: self._toggle_clip(i))
         header.addWidget(text_btn, stretch=1)
 
-        copy_btn = _icon_btn("❐", "Copy")
+        clip_btns = QWidget()
+        clip_btns_layout = QHBoxLayout(clip_btns)
+        clip_btns_layout.setContentsMargins(0, 0, 0, 0)
+        clip_btns_layout.setSpacing(0)
+
+        copy_btn = _icon_btn("📋", "Copy")
         copy_btn.clicked.connect(lambda _=False, i=idx: self._paste_clip(i))
-        header.addWidget(copy_btn)
+        clip_btns_layout.addWidget(copy_btn)
 
-        save_btn = _icon_btn("★", "Save as snippet")
+        save_btn = _icon_btn("💾", "Save as snippet")
         save_btn.clicked.connect(lambda _=False, e=entry: self._save_as_snippet(e))
-        header.addWidget(save_btn)
+        clip_btns_layout.addWidget(save_btn)
 
-        v.addLayout(header)
+        clip_btns.setVisible(False)
+        header.addWidget(clip_btns)
+        frame.enterEvent = lambda e: clip_btns.setVisible(True)
+        frame.leaveEvent = lambda e: clip_btns.setVisible(False)
+
+        header_w = QWidget()
+        header_w.setLayout(header)
+        header_w.setFixedHeight(36)
+        v.addWidget(header_w)
 
         if is_expanded:
             text = QTextEdit()
             text.setFont(font(13, family="Consolas"))
             text.setReadOnly(True)
             text.setPlainText(entry.content)
-            text.setMaximumHeight(120)
+            text.setFixedHeight(120)
             text.setStyleSheet(
                 f"background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; "
                 f"border-radius: {R['md']}px;"
@@ -324,13 +342,17 @@ class ClipboardPage(QWidget):
 
     def _build_snip_entry(self, idx, snip, is_expanded):
         frame = QFrame()
+        frame.setObjectName(f"snip_{idx}")
         frame.setStyleSheet(
-            f"QFrame {{ background: {COLORS['surface_light']}; border-radius: {R['md']}px; }}"
+            f"QFrame#snip_{idx} {{ background: {COLORS['surface_light']}; border-radius: {R['md']}px; }}"
         )
+        frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         v = QVBoxLayout(frame)
         v.setContentsMargins(8, 6, 8, 6)
 
         header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
         toggle = "▾" if is_expanded else "▸"
         preview = snip.get("content", snip.get("preview", ""))[:60].replace("\n", " ")
         if len(snip.get("content", "")) > 60:
@@ -340,37 +362,52 @@ class ClipboardPage(QWidget):
         text_btn = QPushButton(label)
         text_btn.setFont(font(13, "bold"))
         text_btn.setProperty("flat", True)
-        text_btn.setStyleSheet(f"text-align: left; color: {COLORS['text']};")
+        text_btn.setStyleSheet(f"text-align: left; color: {COLORS['text']}; padding: 2px 4px;")
         text_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        text_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        text_btn.setFixedHeight(30)
+        text_btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         text_btn.clicked.connect(lambda _=False, i=idx: self._toggle_snip(i))
         header.addWidget(text_btn, stretch=1)
 
-        copy_btn = _icon_btn("❐", "Copy")
+        snip_btns = QWidget()
+        snip_btns_layout = QHBoxLayout(snip_btns)
+        snip_btns_layout.setContentsMargins(0, 0, 0, 0)
+        snip_btns_layout.setSpacing(0)
+
+        copy_btn = _icon_btn("📋", "Copy")
         copy_btn.clicked.connect(lambda _=False, c=snip["content"]: self.app.clipboard_mgr.paste_content(c))
-        header.addWidget(copy_btn)
+        snip_btns_layout.addWidget(copy_btn)
 
-        edit_btn = _icon_btn("✏", "Edit")
+        edit_btn = _icon_btn("✏️", "Edit")
         edit_btn.clicked.connect(lambda _=False, i=idx: self._edit_snippet(i))
-        header.addWidget(edit_btn)
+        snip_btns_layout.addWidget(edit_btn)
 
-        del_btn = _icon_btn("×", "Delete")
+        del_btn = _icon_btn("🗑️", "Delete")
         del_btn.clicked.connect(lambda _=False, i=idx: self._delete_snippet(i))
-        header.addWidget(del_btn)
+        snip_btns_layout.addWidget(del_btn)
 
-        v.addLayout(header)
+        snip_btns.setVisible(False)
+        header.addWidget(snip_btns)
+        frame.enterEvent = lambda e: snip_btns.setVisible(True)
+        frame.leaveEvent = lambda e: snip_btns.setVisible(False)
+
+        header_w = QWidget()
+        header_w.setLayout(header)
+        header_w.setFixedHeight(36)
+        header_w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        v.addWidget(header_w, stretch=0)
 
         if is_expanded:
             text = QTextEdit()
             text.setFont(font(13, family="Consolas"))
             text.setReadOnly(True)
             text.setPlainText(snip.get("content", ""))
-            text.setMaximumHeight(120)
+            text.setFixedHeight(120)
             text.setStyleSheet(
                 f"background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; "
                 f"border-radius: {R['md']}px;"
             )
-            v.addWidget(text)
+            v.addWidget(text, stretch=0)
 
         self._snip_layout.addWidget(frame)
         return frame

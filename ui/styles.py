@@ -1,7 +1,25 @@
 """Shared colours, QSS stylesheet and font helper for the vox UI."""
 
+import os
+import base64
 from datetime import datetime
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+
+# 10x6 down-arrow PNG (transparent bg, #8f8f9a stroke) — pre-rendered, no SVG/QtSvg needed
+_ARROW_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAGCAYAAAD68A/GAAAAOklEQVQI"
+    "W2NkgIL/DFgAIxMDNsCILgEDTOgSMADVCkZsEkwMWAArNgkYYMEmAQNY"
+    "JZiwScAAACFxC3VgMdBYAAAAAElFTkSuQmCC"
+)
+
+def _get_arrow_path():
+    p = os.path.join(os.path.expanduser("~/.vox"), "arrow_down.png")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    if not os.path.exists(p):
+        with open(p, "wb") as f:
+            f.write(base64.b64decode(_ARROW_PNG_B64))
+    return p.replace("\\", "/")
 
 COLORS = {
     "bg": "#09090b",
@@ -22,7 +40,7 @@ COLORS = {
 
 R = {"sm": 4, "md": 6, "lg": 8}
 
-_UI_SCALE_FACTORS = {"Small": 0.85, "Medium": 1.0, "Large": 1.2, "XL": 1.4}
+_UI_SCALE_FACTORS = {"Small": 0.85, "Medium": 1.0, "Large": 1.15}
 _ui_scale_factor = 1.0
 
 _font_cache: dict = {}
@@ -53,7 +71,7 @@ PREVIEW_COLORS = [
     "#5ba69e", "#a65b6d", "#7b8ba6", "#a6985b",
 ]
 
-WIDGET_WIDTHS = {"Small": 260, "Medium": 320, "Large": 400}
+WIDGET_WIDTHS = {"Small": 175, "Medium": 215, "Large": 270}
 
 
 def fmt_time(dt: datetime = None, seconds: bool = True) -> str:
@@ -65,6 +83,19 @@ def fmt_time(dt: datetime = None, seconds: bool = True) -> str:
     if seconds:
         return dt.strftime("%I:%M:%S %p").lstrip("0").rjust(11)
     return dt.strftime("%I:%M %p").lstrip("0").rjust(8)
+
+
+def fix_combo_popup(combo):
+    """Ensure combo popup appears above sibling widgets."""
+    from PyQt6.QtCore import Qt
+    original_show = combo.showPopup
+    def patched_show():
+        original_show()
+        popup = combo.view().window()
+        if popup and popup is not combo.window():
+            popup.raise_()
+            popup.activateWindow()
+    combo.showPopup = patched_show
 
 
 def build_stylesheet() -> str:
@@ -140,25 +171,39 @@ def build_stylesheet() -> str:
         color: {c['text']};
         border: 1px solid {c['border']};
         border-radius: {r['md']}px;
-        padding: 4px 8px;
+        padding: 4px 28px 4px 8px;
         min-height: 22px;
     }}
     QComboBox::drop-down {{
-        border: none;
+        subcontrol-origin: padding;
+        subcontrol-position: center right;
         width: 20px;
+        border: none;
+        background: transparent;
     }}
     QComboBox::down-arrow {{
         image: none;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-top: 5px solid {c['text_dim']};
-        margin-right: 6px;
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 6px solid {c['accent']};
+        margin-left: -5px;
+        margin-top: -3px;
     }}
     QComboBox QAbstractItemView {{
         background: {c['surface_light']};
         color: {c['text']};
         border: 1px solid {c['border']};
         selection-background-color: {c['hover']};
+        outline: none;
+    }}
+    QComboBox QAbstractItemView::item {{
+        padding: 4px 8px;
+        min-height: 22px;
+    }}
+    QComboBox QAbstractItemView::item:hover {{
+        background: {c['hover']};
     }}
 
     /* ── CheckBox ───────────────────────────────────── */

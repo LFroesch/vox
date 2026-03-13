@@ -6,9 +6,10 @@ from PyQt6.QtWidgets import (
     QDialog, QGridLayout, QCheckBox, QFileDialog,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QGraphicsOpacityEffect
 
 from modules.launcher import LaunchItem
-from ui.styles import COLORS, font, R
+from ui.styles import COLORS, font, R, fix_combo_popup
 
 
 class LaunchersPage(QWidget):
@@ -78,8 +79,9 @@ class LaunchersPage(QWidget):
         self._add_path.setPlaceholderText("Path / Command / URL")
         form_layout.addWidget(self._add_path, stretch=1)
 
-        self._browse_btn = QPushButton("…")
-        self._browse_btn.setFixedSize(30, 30)
+        self._browse_btn = QPushButton("📂")
+        self._browse_btn.setFixedSize(36, 30)
+        self._browse_btn.setFont(font(16, family="Noto Color Emoji, Segoe UI Emoji, Apple Color Emoji"))
         self._browse_btn.clicked.connect(self._browse_path)
         form_layout.addWidget(self._browse_btn)
 
@@ -110,6 +112,8 @@ class LaunchersPage(QWidget):
         layout.addWidget(card)
 
         self._on_type_change(self._add_type.currentText())
+        for combo in [self._type_filter, self._add_type, self._add_terminal_type]:
+            fix_combo_popup(combo)
         self.refresh()
 
     def _on_type_change(self, value: str):
@@ -131,7 +135,7 @@ class LaunchersPage(QWidget):
 
     def _add_item(self):
         name = self._add_name.text().strip()
-        path = self._add_path.text().strip()
+        path = self._add_path.text().strip().strip('"')
         item_type = self._add_type.currentText()
         voice = self._add_voice.text().strip() or None
         terminal_type = self._add_terminal_type.currentText() if item_type == "terminal" else None
@@ -153,8 +157,14 @@ class LaunchersPage(QWidget):
         else:
             QMessageBox.warning(self, "Exists", "Item with that name already exists")
 
+    _TYPE_ORDER = ["app", "terminal", "url", "folder"]
+
     def refresh(self):
         all_items = self.app.launcher.get_all_items()
+        all_items.sort(key=lambda i: (
+            self._TYPE_ORDER.index(i.item_type) if i.item_type in self._TYPE_ORDER else len(self._TYPE_ORDER),
+            i.name.lower()
+        ))
         fav_launchers = set(self.app.config.get('favorites', 'launchers', default=[]))
         fingerprint = tuple(
             (i.name, i.path, i.item_type, i.voice_phrase, i.terminal_type, i.name in fav_launchers)
@@ -186,62 +196,83 @@ class LaunchersPage(QWidget):
             widget.setVisible(visible)
 
     def _build_entry(self, item: LaunchItem, is_fav: bool) -> QWidget:
+        # Table-style row: columns for Name, Type (centered/label), Voice (green, dim if empty), and Actions (fixed width, buttons right)
         entry = QFrame()
         entry.setStyleSheet(
             f"QFrame {{ background: {COLORS['surface_light']}; border-radius: {R['md']}px; }}"
         )
         row = QHBoxLayout(entry)
-        row.setContentsMargins(10, 6, 4, 6)
+        row.setContentsMargins(12, 6, 4, 6)
+        row.setSpacing(0)
 
+        # Name column (left, fixed width)
         name_lbl = QLabel(item.name)
         name_lbl.setFont(font(13, "bold"))
+        name_lbl.setMinimumWidth(140)
+        name_lbl.setMaximumWidth(140)
+        name_lbl.setToolTip(item.name)
         row.addWidget(name_lbl)
 
+        # Type column (centered, fixed width)
         type_text = item.terminal_type if item.item_type == "terminal" and item.terminal_type else item.item_type
         type_lbl = QLabel(type_text)
         type_lbl.setFont(font(11))
+        type_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         type_lbl.setStyleSheet(
             f"background: {COLORS['surface']}; color: {COLORS['text_muted']}; "
             f"border-radius: {R['sm']}px; padding: 2px 8px;"
         )
+        type_lbl.setMinimumWidth(80)
+        type_lbl.setMaximumWidth(80)
         row.addWidget(type_lbl)
+        row.addSpacing(8)
 
+        # Voice column (fixed width, green if set, muted dash if not)
         if item.voice_phrase:
-            voice_lbl = QLabel(f'"{item.voice_phrase}"')
-            voice_lbl.setFont(font(12))
-            voice_lbl.setStyleSheet(f"color: {COLORS['success']};")
-            row.addWidget(voice_lbl)
+            voice_txt = f'"{item.voice_phrase}"'
+            voice_style = f"color: {COLORS['success']};"
+        else:
+            voice_txt = "—"
+            voice_style = f"color: {COLORS['text_muted']};"
+        voice_lbl = QLabel(voice_txt)
+        voice_lbl.setFont(font(12))
+        voice_lbl.setStyleSheet(voice_style)
+        voice_lbl.setMinimumWidth(120)
+        voice_lbl.setMaximumWidth(120)
+        voice_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(voice_lbl)
 
-        row.addStretch()
+        row.addStretch(1)
 
-        # Action buttons
-        fav_btn = QPushButton("❤️" if is_fav else "🤍")
-        fav_btn.setFixedSize(34, 30)
-        fav_btn.setFont(font(14, family="Segoe UI Emoji"))
-        fav_btn.setProperty("flat", True)
-        fav_btn.clicked.connect(lambda: self._toggle_fav(item.name))
-        row.addWidget(fav_btn)
+        # Actions column (buttons row, right)
+        actions = QHBoxLayout()
+        actions.setSpacing(4)
+        actions.setContentsMargins(0, 0, 0, 0)
+        _btn_font = font(14)  # Use system font—see WORK.md's note about emoji inconsistencies
 
-        launch_btn = QPushButton("▶️")
-        launch_btn.setFixedSize(34, 30)
-        launch_btn.setFont(font(14, family="Segoe UI Emoji"))
-        launch_btn.setProperty("flat", True)
-        launch_btn.clicked.connect(lambda: self.app.launcher.launch(item))
-        row.addWidget(launch_btn)
+        for text, tooltip, callback in [
+            ("❤️" if is_fav else "🤍", "Favorite", lambda: self._toggle_fav(item.name)),
+            ("▶️", "Launch", lambda: self.app.launcher.launch(item)),
+            ("✏️", "Edit", lambda: self._edit_item(item)),
+            ("🗑️", "Delete", lambda: self._delete_item(item.name)),
+        ]:
+            btn = QPushButton(text)
+            btn.setFixedSize(38, 32)
+            btn.setFont(_btn_font)
+            btn.setProperty("flat", True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(callback)
+            actions.addWidget(btn)
 
-        edit_btn = QPushButton("✏️")
-        edit_btn.setFixedSize(34, 30)
-        edit_btn.setFont(font(14, family="Segoe UI Emoji"))
-        edit_btn.setProperty("flat", True)
-        edit_btn.clicked.connect(lambda: self._edit_item(item))
-        row.addWidget(edit_btn)
-
-        del_btn = QPushButton("🗑️")
-        del_btn.setFixedSize(34, 30)
-        del_btn.setFont(font(14, family="Segoe UI Emoji"))
-        del_btn.setProperty("flat", True)
-        del_btn.clicked.connect(lambda: self._delete_item(item.name))
-        row.addWidget(del_btn)
+        actions_w = QWidget()
+        actions_w.setLayout(actions)
+        opacity = QGraphicsOpacityEffect(actions_w)
+        opacity.setOpacity(0.0)
+        actions_w.setGraphicsEffect(opacity)
+        row.addWidget(actions_w)
+        entry.enterEvent = lambda e, o=opacity: o.setOpacity(1.0)
+        entry.leaveEvent = lambda e, o=opacity: o.setOpacity(0.0)
 
         self._list_layout.addWidget(entry)
         return entry
@@ -284,8 +315,9 @@ class LaunchersPage(QWidget):
         path_row = QHBoxLayout()
         path_entry = QLineEdit(item.path)
         path_row.addWidget(path_entry)
-        browse = QPushButton("...")
+        browse = QPushButton("📂")
         browse.setFixedWidth(36)
+        browse.setFont(font(16, family="Noto Color Emoji, Segoe UI Emoji, Apple Color Emoji"))
         browse.clicked.connect(lambda: self._browse_for_entry(type_combo, path_entry))
         path_row.addWidget(browse)
         path_container = QWidget()
@@ -313,6 +345,8 @@ class LaunchersPage(QWidget):
         grid.addWidget(shell_combo, 4, 1)
         type_combo.currentTextChanged.connect(on_type_change)
         on_type_change(item.item_type)
+        fix_combo_popup(type_combo)
+        fix_combo_popup(shell_combo)
 
         layout.addLayout(grid)
         layout.addStretch()
@@ -335,7 +369,7 @@ class LaunchersPage(QWidget):
                 return
             item.name = new_name
             item.item_type = type_combo.currentText()
-            item.path = path_entry.text().strip()
+            item.path = path_entry.text().strip().strip('"')
             item.voice_phrase = voice_entry.text().strip() or None
             item.terminal_type = shell_combo.currentText() if item.item_type == "terminal" else None
             self.app.launcher._save_items()

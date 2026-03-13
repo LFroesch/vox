@@ -129,25 +129,24 @@ class WindowsPage(QWidget):
         row.addWidget(self._layout_dropdown)
 
         self._load_btn = QPushButton("Load")
-        self._load_btn.setFixedSize(55, 30)
+        self._load_btn.setFixedSize(60, 30)
         self._load_btn.setProperty("accent", True)
         self._load_btn.clicked.connect(self._load_selected_layout)
         row.addWidget(self._load_btn)
 
         edit_btn = QPushButton("Edit")
-        edit_btn.setFixedSize(45, 30)
+        edit_btn.setFixedSize(60, 30)
         edit_btn.clicked.connect(self._edit_selected_layout)
         row.addWidget(edit_btn)
 
-        del_btn = QPushButton("Del")
-        del_btn.setFixedSize(40, 30)
+        del_btn = QPushButton("Delete")
+        del_btn.setFixedSize(80, 30)
         del_btn.clicked.connect(self._delete_selected_layout)
         row.addWidget(del_btn)
 
-        self._fav_btn = QPushButton("♡")
-        self._fav_btn.setFixedSize(30, 30)
-        self._fav_btn.setFont(font(15))
-        self._fav_btn.setProperty("flat", True)
+        self._fav_btn = QPushButton("🤍")
+        self._fav_btn.setFixedSize(44, 30)
+        self._fav_btn.setFont(font(14))
         self._fav_btn.clicked.connect(self._toggle_fav_layout)
         row.addWidget(self._fav_btn)
 
@@ -158,11 +157,12 @@ class WindowsPage(QWidget):
         self._preview = LayoutPreview()
         sa_layout.addWidget(self._preview)
 
-        # Info label
-        self._layout_info = QLabel("")
-        self._layout_info.setFont(font(12))
-        self._layout_info.setStyleSheet(f"color: {COLORS['text_dim']};")
-        sa_layout.addWidget(self._layout_info)
+        # Legend
+        self._legend_widget = QWidget()
+        self._legend_layout = QHBoxLayout(self._legend_widget)
+        self._legend_layout.setContentsMargins(0, 2, 0, 2)
+        self._legend_layout.setSpacing(12)
+        sa_layout.addWidget(self._legend_widget)
 
         layout.addWidget(section_a)
 
@@ -245,12 +245,12 @@ class WindowsPage(QWidget):
             name = self._layout_dropdown.currentText()
         if not name or name == "(none)":
             self._preview.set_layout_data([])
-            self._layout_info.setText("No layouts saved")
+            self._rebuild_legend([])
             return
 
         # Build preview data
-        if name in self.app.layout_manager.layouts:
-            layout_data = self.app.layout_manager.layouts[name]
+        layout_data = self.app.layout_manager.layouts.get(name, {})
+        if layout_data:
             windows = []
             for wd in layout_data.values():
                 pos = wd.get('position', {})
@@ -263,45 +263,48 @@ class WindowsPage(QWidget):
                                         'app': ident.get('app_type', 'unknown')})
             self._preview.set_layout_data(windows, self.app.window_manager.get_app_display_name)
 
-        # Info label
-        info = self.app.layout_manager.get_layout_info(name)
-        layout_data = self.app.layout_manager.layouts.get(name, {})
-        apps = []
+        # Build legend from same color order as preview
+        app_colors = []
+        seen = {}
+        color_idx = 0
         for wd in layout_data.values():
             if 'identifier' in wd:
                 app = wd['identifier'].get('app_type', 'unknown')
-                apps.append(self.app.window_manager.get_app_display_name(app))
-        matches = info.get('matches', 0) if info else 0
-        total = info.get('window_count', 0) if info else 0
-        if matches == total:
-            color = COLORS["success"]
-        elif matches > 0:
-            color = COLORS["warning"]
-        else:
-            color = COLORS["text_dim"]
-        preview = ", ".join(apps[:4])
-        if len(apps) > 4:
-            preview += f" +{len(apps) - 4}"
-        text = f"{matches}/{total} matched"
-        if preview:
-            text += f"  ·  {preview}"
-        self._layout_info.setText(text)
-        self._layout_info.setStyleSheet(f"color: {color};")
+                if app not in seen:
+                    seen[app] = PREVIEW_COLORS[color_idx % len(PREVIEW_COLORS)]
+                    color_idx += 1
+                    display = self.app.window_manager.get_app_display_name(app)
+                    app_colors.append((display, seen[app]))
+        self._rebuild_legend(app_colors)
         self._update_fav_btn()
+
+    def _rebuild_legend(self, app_colors: list):
+        """Rebuild the color legend below the preview. app_colors: [(display_name, hex_color), ...]"""
+        _clear(self._legend_layout)
+        for name, color in app_colors:
+            dot = QLabel("●")
+            dot.setFont(font(12))
+            dot.setStyleSheet(f"color: {color};")
+            dot.setFixedWidth(14)
+            self._legend_layout.addWidget(dot)
+            lbl = QLabel(name)
+            lbl.setFont(font(11))
+            lbl.setStyleSheet(f"color: {COLORS['text_dim']};")
+            self._legend_layout.addWidget(lbl)
+        self._legend_layout.addStretch()
 
     def _update_fav_btn(self):
         name = self._layout_dropdown.currentText()
         if name and name != "(none)" and self.app.is_favorite('layouts', name):
-            self._fav_btn.setText("♥")
-            self._fav_btn.setStyleSheet(f"color: {COLORS['accent']};")
+            self._fav_btn.setText("❤️")
         else:
-            self._fav_btn.setText("♡")
-            self._fav_btn.setStyleSheet(f"color: {COLORS['text_dim']};")
+            self._fav_btn.setText("🤍")
 
     def _load_selected_layout(self):
         name = self._layout_dropdown.currentText()
         if name and name != "(none)":
             self.app.quick_load_layout(name)
+            self.app.set_status(f"Layout '{name}' loaded", COLORS["success"])
 
     def _edit_selected_layout(self):
         name = self._layout_dropdown.currentText()
@@ -311,8 +314,14 @@ class WindowsPage(QWidget):
     def _delete_selected_layout(self):
         name = self._layout_dropdown.currentText()
         if name and name != "(none)":
-            self.app.delete_layout(name)
-            self._refresh_layout_dropdown()
+            reply = QMessageBox.question(
+                self, "Delete Layout",
+                f"Delete layout '{name}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.app.delete_layout(name)
+                self._refresh_layout_dropdown()
 
     def _toggle_fav_layout(self):
         name = self._layout_dropdown.currentText()
@@ -385,11 +394,16 @@ class WindowsPage(QWidget):
         dim_lbl.setStyleSheet(f"color: {COLORS['text_muted']};")
         row.addWidget(dim_lbl)
 
-        auto_cb = QCheckBox("Auto")
+        auto_cb = QCheckBox("Auto-launch")
         auto_cb.setFont(font(11))
         auto_cb.setStyleSheet(f"color: {COLORS['text_muted']};")
+        auto_cb.setToolTip("Launch this app automatically if not open when loading the layout")
+        auto_cb.setVisible(False)
         row.addWidget(auto_cb)
         self.auto_launch_vars[window.hwnd] = auto_cb
+
+        entry.enterEvent = lambda e, cb=auto_cb: cb.setVisible(True)
+        entry.leaveEvent = lambda e, cb=auto_cb: cb.setVisible(cb.isChecked())
 
         self._window_list_layout.addWidget(entry)
 
@@ -414,11 +428,29 @@ class WindowsPage(QWidget):
 
     def _select_all(self):
         self.selected_windows = [w.hwnd for w in self.windows]
-        self.refresh_windows()
+        for hwnd, cb in self.window_checkboxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(True)
+            cb.blockSignals(False)
+            entry = cb.parentWidget()
+            if entry:
+                entry.setStyleSheet(
+                    f"QFrame {{ background: {COLORS['hover']}; border-radius: {R['md']}px; }}"
+                )
+        self._update_save_bar()
 
     def _deselect_all(self):
         self.selected_windows.clear()
-        self.refresh_windows()
+        for hwnd, cb in self.window_checkboxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(False)
+            cb.blockSignals(False)
+            entry = cb.parentWidget()
+            if entry:
+                entry.setStyleSheet(
+                    f"QFrame {{ background: {COLORS['surface_light']}; border-radius: {R['md']}px; }}"
+                )
+        self._update_save_bar()
 
     def _update_save_bar(self):
         count = len(self.selected_windows)

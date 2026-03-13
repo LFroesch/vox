@@ -53,6 +53,15 @@ class HomePage(QWidget):
         self.voice_log_text.setReadOnly(True)
         self.voice_log_text.setFont(font(13, family="Consolas"))
         vl_layout.addWidget(self.voice_log_text)
+
+        vl_btn_row = QHBoxLayout()
+        vl_btn_row.addStretch()
+        clear_btn = QPushButton("Clear")
+        clear_btn.setFixedSize(70, 30)
+        clear_btn.clicked.connect(self._clear_voice_log)
+        vl_btn_row.addWidget(clear_btn)
+        vl_layout.addLayout(vl_btn_row)
+
         tabs.addTab(voice_log_widget, "Voice Log")
 
         # Notes tab
@@ -183,6 +192,15 @@ class HomePage(QWidget):
                 self.voice_log_text.setPlainText("\n".join(reversed(lines)))
             except Exception as e:
                 print(f"Failed to load voice log: {e}")
+
+    def _clear_voice_log(self):
+        self.voice_log_text.clear()
+        log_path = Path(self.app.config.config_dir) / "voice_log.txt"
+        try:
+            log_path.write_text("", encoding="utf-8")
+        except Exception:
+            pass
+        self.app.set_status("Voice log cleared", COLORS["success"])
 
     def prepend_voice_log(self, entry: str):
         cursor = self.voice_log_text.textCursor()
