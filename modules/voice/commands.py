@@ -407,6 +407,45 @@ class CommandManager:
                     self.custom_commands[phrase] = callback
                     self.custom_responses[phrase] = resp
 
+    # === Workflow Commands ===
+    def register_workflow_commands(self, workflow_manager, on_run_callback=None):
+        """Register voice commands for all saved workflows"""
+        self.workflow_manager = workflow_manager
+        self.workflow_run_callback = on_run_callback
+        self._refresh_workflow_commands()
+
+    def _refresh_workflow_commands(self):
+        """Refresh workflow voice commands from saved workflows"""
+        if not hasattr(self, 'workflow_manager'):
+            return
+        # Remove old workflow commands
+        old_keys = [k for k, v in self.custom_commands.items() if getattr(v, '_is_workflow_cmd', False)]
+        for k in old_keys:
+            del self.custom_commands[k]
+            self.custom_responses.pop(k, None)
+        # Add current ones
+        for name in self.workflow_manager.get_names():
+            wf = self.workflow_manager.get(name)
+            if not wf:
+                continue
+            response = f"Running {name} workflow"
+            def make_runner(wf_name):
+                def run():
+                    if self.workflow_run_callback:
+                        self.workflow_run_callback(wf_name)
+                run._is_workflow_cmd = True
+                return run
+            runner = make_runner(name)
+            # Register phrases: name, "X workflow", voice_phrase, + prefixes
+            phrases = [name.lower(), f"{name} workflow".lower()]
+            if wf.voice_phrase:
+                phrases.append(wf.voice_phrase.lower())
+            for prefix in ("run", "start", "launch", "execute"):
+                phrases.append(f"{prefix} {name}".lower())
+            for phrase in set(phrases):
+                self.custom_commands[phrase] = runner
+                self.custom_responses[phrase] = response
+
     # === Layout Commands ===
     def register_layout_commands(self, layout_manager, on_load_callback=None):
         """Register voice commands for all saved layouts"""

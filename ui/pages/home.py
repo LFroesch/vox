@@ -37,7 +37,7 @@ class HomePage(QWidget):
         self._qa_container = QFrame()
         self._qa_container.setProperty("card", True)
         self._qa_layout = QVBoxLayout(self._qa_container)
-        self._qa_layout.setContentsMargins(8, 8, 8, 8)
+        self._qa_layout.setContentsMargins(6, 4, 6, 4)
         layout.addWidget(self._qa_container)
 
         # -- Sub-tabs: Voice Log | Notes --
@@ -104,6 +104,7 @@ class HomePage(QWidget):
     def refresh_quick_actions(self):
         fav_layouts = self.app.config.get('favorites', 'layouts', default=[])
         fav_launchers = self.app.config.get('favorites', 'launchers', default=[])
+        fav_workflows = self.app.config.get('favorites', 'workflows', default=[])
 
         layout_actions = []
         for name in self.app.layout_manager.get_layout_names():
@@ -115,8 +116,16 @@ class HomePage(QWidget):
             if item.name in fav_launchers:
                 launcher_actions.append(item)
 
-        new_state = (tuple(fav_layouts), tuple(fav_launchers),
-                     tuple(layout_actions), tuple(i.name for i in launcher_actions))
+        workflow_actions = []
+        wm = getattr(self.app, 'workflow_manager', None)
+        if wm:
+            for name in wm.get_names():
+                if name in fav_workflows:
+                    workflow_actions.append(name)
+
+        new_state = (tuple(fav_layouts), tuple(fav_launchers), tuple(fav_workflows),
+                     tuple(layout_actions), tuple(i.name for i in launcher_actions),
+                     tuple(workflow_actions))
         if self._last_quick_actions == new_state:
             return
         self._last_quick_actions = new_state
@@ -129,8 +138,8 @@ class HomePage(QWidget):
             elif child.layout():
                 _clear_layout(child.layout())
 
-        if not layout_actions and not launcher_actions:
-            lbl = QLabel("♥ Favorite layouts or launchers to pin them here")
+        if not layout_actions and not launcher_actions and not workflow_actions:
+            lbl = QLabel("\u2665 Favorite layouts, launchers, or workflows to pin them here")
             lbl.setStyleSheet(f"color: {COLORS['text_dim']};")
             lbl.setFont(font(12))
             self._qa_layout.addWidget(lbl)
@@ -144,7 +153,7 @@ class HomePage(QWidget):
             self._qa_layout.addWidget(sec)
 
             grid = QGridLayout()
-            grid.setSpacing(4)
+            grid.setSpacing(3)
             for i, name in enumerate(layout_actions):
                 btn = QPushButton(name)
                 btn.setFixedHeight(28)
@@ -167,7 +176,7 @@ class HomePage(QWidget):
             self._qa_layout.addWidget(sec)
 
             grid = QGridLayout()
-            grid.setSpacing(4)
+            grid.setSpacing(3)
             for i, item in enumerate(launcher_actions):
                 btn = QPushButton(item.name)
                 btn.setFixedHeight(28)
@@ -178,6 +187,29 @@ class HomePage(QWidget):
                 )
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn.clicked.connect(lambda checked, it=item: self.app.launcher.launch(it))
+                grid.addWidget(btn, i // cols, i % cols)
+            container = QWidget()
+            container.setLayout(grid)
+            self._qa_layout.addWidget(container)
+
+        if workflow_actions:
+            sec = QLabel("Workflows")
+            sec.setFont(font(11, "bold"))
+            sec.setStyleSheet(f"color: {COLORS['text_muted']};")
+            self._qa_layout.addWidget(sec)
+
+            grid = QGridLayout()
+            grid.setSpacing(3)
+            for i, name in enumerate(workflow_actions):
+                btn = QPushButton(name)
+                btn.setFixedHeight(28)
+                btn.setFont(font(12))
+                btn.setStyleSheet(
+                    f"background: {COLORS['surface']}; color: {COLORS['text_dim']}; "
+                    f"border: 1px solid {COLORS['border']}; border-radius: 14px; padding: 2px 10px;"
+                )
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda checked, n=name: self.app.run_workflow(n))
                 grid.addWidget(btn, i // cols, i % cols)
             container = QWidget()
             container.setLayout(grid)

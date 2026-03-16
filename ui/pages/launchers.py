@@ -12,6 +12,16 @@ from modules.launcher import LaunchItem
 from ui.styles import COLORS, font, R, fix_combo_popup
 
 
+def _next_name(base: str, exists_fn) -> str:
+    """Generate 'Name (2)', 'Name (3)', etc. until no conflict."""
+    i = 2
+    while True:
+        candidate = f"{base} ({i})"
+        if not exists_fn(candidate):
+            return candidate
+        i += 1
+
+
 class LaunchersPage(QWidget):
     def __init__(self, app):
         super().__init__()
@@ -85,6 +95,11 @@ class LaunchersPage(QWidget):
         self._browse_btn.clicked.connect(self._browse_path)
         form_layout.addWidget(self._browse_btn)
 
+        self._add_args = QLineEdit()
+        self._add_args.setPlaceholderText("Args (opt)")
+        self._add_args.setFixedWidth(90)
+        form_layout.addWidget(self._add_args)
+
         self._add_voice = QLineEdit()
         self._add_voice.setPlaceholderText("Voice (opt)")
         self._add_voice.setFixedWidth(90)
@@ -145,21 +160,30 @@ class LaunchersPage(QWidget):
             QMessageBox.warning(self, "Missing Info", label)
             return
 
+        args = self._add_args.text().strip()
         item = LaunchItem(name=name, path=path, item_type=item_type,
-                          voice_phrase=voice, terminal_type=terminal_type)
+                          voice_phrase=voice, terminal_type=terminal_type, args=args)
         if self.app.launcher.add_item(item):
             self.app.commands._refresh_launcher_commands()
             self.refresh()
             self.app.mark_dirty("home", "voice")
             self._add_name.clear()
             self._add_path.clear()
+            self._add_args.clear()
             self._add_voice.clear()
         else:
             QMessageBox.warning(self, "Exists", "Item with that name already exists")
 
     _TYPE_ORDER = ["app", "terminal", "url", "folder"]
+    _TYPE_LABELS = {"app": "Apps", "terminal": "Terminal", "url": "URLs", "folder": "Folders"}
+
+    def __init_sections(self):
+        if not hasattr(self, '_collapsed_sections'):
+            self._collapsed_sections = set()
+            self._section_headers = {}
 
     def refresh(self):
+        self.__init_sections()
         all_items = self.app.launcher.get_all_items()
         all_items.sort(key=lambda i: (
             self._TYPE_ORDER.index(i.item_type) if i.item_type in self._TYPE_ORDER else len(self._TYPE_ORDER),
@@ -174,29 +198,89 @@ class LaunchersPage(QWidget):
         if self._fingerprint != fingerprint:
             _clear(self._list_layout)
             self._entry_widgets = {}
+            self._section_headers = {}
+
+            # Group by type
+            groups = {}
             for item in all_items:
-                w = self._build_entry(item, item.name in fav_launchers)
-                self._entry_widgets[item.name] = (w, item)
+                groups.setdefault(item.item_type, []).append(item)
+
+            for t in self._TYPE_ORDER:
+                items = groups.get(t, [])
+                if not items:
+                    continue
+
+                # Section header
+                label = self._TYPE_LABELS.get(t, t.title())
+                collapsed = t in self._collapsed_sections
+                header = QPushButton(f"{'▸' if collapsed else '▾'}  {label}  ({len(items)})")
+                header.setFixedHeight(28)
+                header.setFont(font(12, "bold"))
+                header.setStyleSheet(
+                    f"QPushButton {{ background: {COLORS['surface']}; color: {COLORS['text_dim']}; "
+                    f"border: 1px solid {COLORS['border']}; border-radius: {R['sm']}px; "
+                    f"text-align: left; padding-left: 8px; }}"
+                    f"QPushButton:hover {{ background: {COLORS['hover']}; }}"
+                )
+                header.setCursor(Qt.CursorShape.PointingHandCursor)
+                header.clicked.connect(lambda checked, tp=t: self._toggle_section(tp))
+                self._list_layout.addWidget(header)
+                self._section_headers[t] = header
+
+                for item in items:
+                    w = self._build_entry(item, item.name in fav_launchers)
+                    self._entry_widgets[item.name] = (w, item)
+                    if collapsed:
+                        w.setVisible(False)
+
+            self._list_layout.addStretch()
             self._fingerprint = fingerprint
 
         self._apply_filter()
+
+    def _toggle_section(self, type_key: str):
+        if type_key in self._collapsed_sections:
+            self._collapsed_sections.discard(type_key)
+        else:
+            self._collapsed_sections.add(type_key)
+        collapsed = type_key in self._collapsed_sections
+        # Update header arrow
+        if type_key in self._section_headers:
+            label = self._TYPE_LABELS.get(type_key, type_key.title())
+            count = sum(1 for _, (_, item) in self._entry_widgets.items() if item.item_type == type_key)
+            self._section_headers[type_key].setText(f"{'▸' if collapsed else '▾'}  {label}  ({count})")
+        # Show/hide individual entries
+        for _, (widget, item) in self._entry_widgets.items():
+            if item.item_type == type_key:
+                widget.setVisible(not collapsed)
 
     def _apply_filter(self):
         search_q = self._search.text().strip().lower()
         type_filter = self._type_filter.currentText()
 
+        visible_counts = {}
         for name, (widget, item) in self._entry_widgets.items():
             visible = True
-            if type_filter != "All" and item.item_type != type_filter:
+            if item.item_type in self._collapsed_sections:
                 visible = False
-            if search_q:
+            elif type_filter != "All" and item.item_type != type_filter:
+                visible = False
+            elif search_q:
                 haystack = f"{item.name} {item.path} {item.voice_phrase or ''}".lower()
                 if search_q not in haystack:
                     visible = False
             widget.setVisible(visible)
+            if visible:
+                visible_counts[item.item_type] = visible_counts.get(item.item_type, 0) + 1
+
+        for t, header in self._section_headers.items():
+            # Hide header only if type filter excludes it entirely
+            if type_filter != "All" and t != type_filter:
+                header.setVisible(False)
+            else:
+                header.setVisible(True)
 
     def _build_entry(self, item: LaunchItem, is_fav: bool) -> QWidget:
-        # Table-style row: columns for Name, Type (centered/label), Voice (green, dim if empty), and Actions (fixed width, buttons right)
         entry = QFrame()
         entry.setStyleSheet(
             f"QFrame {{ background: {COLORS['surface_light']}; border-radius: {R['md']}px; }}"
@@ -232,7 +316,7 @@ class LaunchersPage(QWidget):
             voice_txt = f'"{item.voice_phrase}"'
             voice_style = f"color: {COLORS['success']};"
         else:
-            voice_txt = "—"
+            voice_txt = "\u2014"
             voice_style = f"color: {COLORS['text_muted']};"
         voice_lbl = QLabel(voice_txt)
         voice_lbl.setFont(font(12))
@@ -248,11 +332,12 @@ class LaunchersPage(QWidget):
         actions = QHBoxLayout()
         actions.setSpacing(4)
         actions.setContentsMargins(0, 0, 0, 0)
-        _btn_font = font(14)  # Use system font—see WORK.md's note about emoji inconsistencies
+        _btn_font = font(14)
 
         for text, tooltip, callback in [
             ("❤️" if is_fav else "🤍", "Favorite", lambda: self._toggle_fav(item.name)),
             ("▶️", "Launch", lambda: self.app.launcher.launch(item)),
+            ("📋", "Duplicate", lambda: self._duplicate_item(item)),
             ("✏️", "Edit", lambda: self._edit_item(item)),
             ("🗑️", "Delete", lambda: self._delete_item(item.name)),
         ]:
@@ -277,6 +362,20 @@ class LaunchersPage(QWidget):
         self._list_layout.addWidget(entry)
         return entry
 
+    def _duplicate_item(self, item: LaunchItem):
+        new_name = _next_name(item.name, lambda n: self.app.launcher.get_item(n) is not None)
+        dup = LaunchItem(
+            name=new_name, path=item.path, item_type=item.item_type,
+            voice_phrase=None, args=item.args, terminal_type=item.terminal_type,
+            new_tab=item.new_tab,
+        )
+        if self.app.launcher.add_item(dup):
+            self.app.commands._refresh_launcher_commands()
+            self._fingerprint = None
+            self.refresh()
+            self.app.mark_dirty("home", "voice")
+            self._edit_item(dup)
+
     def _toggle_fav(self, name: str):
         self.app.toggle_favorite('launchers', name)
         self._fingerprint = None
@@ -285,7 +384,7 @@ class LaunchersPage(QWidget):
     def _edit_item(self, item: LaunchItem):
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Edit: {item.name}")
-        dlg.setFixedSize(460, 300)
+        dlg.setFixedSize(460, 340)
         dlg.setStyleSheet(f"QDialog {{ background: {COLORS['bg']}; }}")
 
         layout = QVBoxLayout(dlg)
@@ -324,10 +423,16 @@ class LaunchersPage(QWidget):
         path_container.setLayout(path_row)
         grid.addWidget(path_container, 2, 1)
 
+        # Args
+        grid.addWidget(QLabel("Args:"), 3, 0)
+        args_entry = QLineEdit(item.args or "")
+        args_entry.setPlaceholderText("e.g. C:\\path\\to\\project")
+        grid.addWidget(args_entry, 3, 1)
+
         # Voice
-        grid.addWidget(QLabel("Voice:"), 3, 0)
+        grid.addWidget(QLabel("Voice:"), 4, 0)
         voice_entry = QLineEdit(item.voice_phrase or "")
-        grid.addWidget(voice_entry, 3, 1)
+        grid.addWidget(voice_entry, 4, 1)
 
         # Shell
         shell_label = QLabel("Shell:")
@@ -341,8 +446,8 @@ class LaunchersPage(QWidget):
             shell_combo.setVisible(show_shell)
             browse.setVisible(val in ("app", "folder"))
 
-        grid.addWidget(shell_label, 4, 0)
-        grid.addWidget(shell_combo, 4, 1)
+        grid.addWidget(shell_label, 5, 0)
+        grid.addWidget(shell_combo, 5, 1)
         type_combo.currentTextChanged.connect(on_type_change)
         on_type_change(item.item_type)
         fix_combo_popup(type_combo)
@@ -363,6 +468,8 @@ class LaunchersPage(QWidget):
         save_btn.setFixedSize(90, 34)
         save_btn.setProperty("accent", True)
 
+        old_name = item.name
+
         def do_save():
             new_name = name_entry.text().strip()
             if not new_name:
@@ -370,10 +477,16 @@ class LaunchersPage(QWidget):
             item.name = new_name
             item.item_type = type_combo.currentText()
             item.path = path_entry.text().strip().strip('"')
+            item.args = args_entry.text().strip()
             item.voice_phrase = voice_entry.text().strip() or None
             item.terminal_type = shell_combo.currentText() if item.item_type == "terminal" else None
             self.app.launcher._save_items()
             self.app.commands._refresh_launcher_commands()
+            # Update workflow refs if renamed
+            if new_name != old_name:
+                wm = getattr(self.app, 'workflow_manager', None)
+                if wm:
+                    wm.update_launcher_ref(old_name, new_name)
             self._fingerprint = None
             self.refresh()
             self.app.mark_dirty("home", "voice")
@@ -405,6 +518,10 @@ class LaunchersPage(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             if self.app.launcher.remove_item(name):
                 self.app.commands._refresh_launcher_commands()
+                # Clear workflow refs to deleted launcher
+                wm = getattr(self.app, 'workflow_manager', None)
+                if wm:
+                    wm.clear_launcher_ref(name)
                 self._fingerprint = None
                 self.refresh()
                 self.app.mark_dirty("home", "voice")

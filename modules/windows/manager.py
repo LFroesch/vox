@@ -205,16 +205,9 @@ class WindowManager:
             return False
 
     def restore_window(self, hwnd: int) -> bool:
-        """Restore a window and bring to foreground"""
+        """Restore a window from minimized or maximized state"""
         try:
-            if win32gui.IsIconic(hwnd):
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
-            win32gui.BringWindowToTop(hwnd)
-            try:
-                win32gui.SetForegroundWindow(hwnd)
-            except:
-                pass
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
             return True
         except:
             return False

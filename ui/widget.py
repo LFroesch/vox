@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPoint, QTimer
 
 from ui.styles import COLORS, font, R, WIDGET_WIDTHS, _ui_scale_factor
+from core.config import get_config
 
 
 class FloatingWidget(QWidget):
@@ -29,6 +30,7 @@ class FloatingWidget(QWidget):
         self._reminders_expanded = False
         self._layouts_expanded = False
         self._launchers_expanded = False
+        self._workflows_expanded = False
         self._drag_pos = None
 
         # Window flags
@@ -41,9 +43,14 @@ class FloatingWidget(QWidget):
         self.setFixedWidth(self._width)
         self.setMinimumHeight(int(200 * _ui_scale_factor))
 
-        # Position top-right
+        # Restore saved position or default to top-right
+        cfg = get_config()
+        saved_x = cfg.get("ui", "widget_x")
+        saved_y = cfg.get("ui", "widget_y")
         screen = QApplication.primaryScreen()
-        if screen:
+        if saved_x is not None and saved_y is not None:
+            self.move(saved_x, saved_y)
+        elif screen:
             geo = screen.availableGeometry()
             self.move(geo.right() - self._width - 20, geo.top() + 10)
 
@@ -207,6 +214,18 @@ class FloatingWidget(QWidget):
         self._launchers_content.hide()
         self._body_layout.addWidget(self._launchers_content)
 
+        # -- Workflows section --
+        self._workflows_header = self._section_header("Workflows", "workflows")
+        self._body_layout.addWidget(self._workflows_header)
+        self._workflows_content = QWidget()
+        self._workflows_content_layout = QGridLayout(self._workflows_content)
+        self._workflows_content_layout.setContentsMargins(2, 0, 2, 4)
+        self._workflows_content_layout.setSpacing(2)
+        self._workflows_content_layout.setColumnStretch(0, 1)
+        self._workflows_content_layout.setColumnStretch(1, 1)
+        self._workflows_content.hide()
+        self._body_layout.addWidget(self._workflows_content)
+
         self._body_layout.addStretch()
 
     def _section_header(self, label, section):
@@ -227,7 +246,8 @@ class FloatingWidget(QWidget):
         attr = f"_{section}_expanded"
         header = getattr(self, f"_{section}_header")
         content = getattr(self, f"_{section}_content")
-        label = {"status": "Status", "reminders": "Reminders", "layouts": "Layouts", "launchers": "Launchers"}[section]
+        label = {"status": "Status", "reminders": "Reminders", "layouts": "Layouts",
+                 "launchers": "Launchers", "workflows": "Workflows"}[section]
 
         expanded = not getattr(self, attr)
         setattr(self, attr, expanded)
@@ -241,6 +261,8 @@ class FloatingWidget(QWidget):
                 self._refresh_layouts()
             elif section == "launchers":
                 self._refresh_launchers()
+            elif section == "workflows":
+                self._refresh_workflows()
 
         self._update_size()
 
@@ -292,6 +314,16 @@ class FloatingWidget(QWidget):
             "No favorited launchers"
         )
 
+    def _refresh_workflows(self):
+        if not self.get_actions:
+            return
+        actions = self.get_actions()
+        self._build_action_list(
+            self._workflows_content_layout,
+            actions.get("workflows", []),
+            "No favorited workflows"
+        )
+
     def refresh_actions(self):
         if self._reminders_expanded:
             self._refresh_reminders()
@@ -299,6 +331,8 @@ class FloatingWidget(QWidget):
             self._refresh_layouts()
         if self._launchers_expanded:
             self._refresh_launchers()
+        if self._workflows_expanded:
+            self._refresh_workflows()
 
     # ── Reminders ──
 
@@ -471,6 +505,11 @@ class FloatingWidget(QWidget):
             self.move(event.globalPosition().toPoint() - self._drag_pos)
 
     def mouseReleaseEvent(self, event):
+        if self._drag_pos:
+            pos = self.pos()
+            cfg = get_config()
+            cfg.set("ui", "widget_x", value=pos.x())
+            cfg.set("ui", "widget_y", value=pos.y())
         self._drag_pos = None
 
     def mouseDoubleClickEvent(self, event):

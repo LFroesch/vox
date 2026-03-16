@@ -1,6 +1,4 @@
 import json
-import subprocess
-import threading
 import time
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -38,13 +36,10 @@ class LayoutManager:
         """Get list of saved layout names"""
         return list(self.layouts.keys())
 
-    def save_layout(self, name: str, windows: List[WindowInfo], auto_launch_config: Dict[int, bool] = None) -> bool:
+    def save_layout(self, name: str, windows: List[WindowInfo]) -> bool:
         """Save current window positions as a layout"""
         if not windows:
             return False
-
-        if auto_launch_config is None:
-            auto_launch_config = {}
 
         layout_data = {}
         for i, window in enumerate(windows):
@@ -58,7 +53,6 @@ class LayoutManager:
                     "height": window.height
                 },
                 "exe_path": window.exe_path,
-                "auto_launch": auto_launch_config.get(window.hwnd, False),
                 "is_borderless": window.is_borderless
             }
 
@@ -67,15 +61,12 @@ class LayoutManager:
         return True
 
     def load_layout(self, name: str, threshold: int = 40) -> Dict[str, Any]:
-        """Load and apply a saved layout"""
+        """Load and apply a saved layout (pure positioning, no auto-launch)."""
         if name not in self.layouts:
             return {"success": False, "error": "Layout not found"}
 
         layout_data = self.layouts[name]
         current_windows = self.wm.get_all_windows_with_minimized()
-
-        # Snapshot all existing hwnds so launched apps can be distinguished
-        existing_hwnds = {w.hwnd for w in current_windows}
 
         windows_by_app: Dict[str, List] = {}
         for w in current_windows:
@@ -86,19 +77,27 @@ class LayoutManager:
 
         applied = 0
         failed = []
-        launched = []
 
         for window_key, window_data in layout_data.items():
             if 'identifier' not in window_data:
                 continue
 
-            app_type = window_data['identifier'].get('app_type', '')
+            identifier = window_data['identifier']
+            app_type = identifier.get('app_type', '')
 
             if app_type in windows_by_app and windows_by_app[app_type]:
-                match = windows_by_app[app_type].pop(0)
-                # Always restore to normal state before repositioning
+                candidates = windows_by_app[app_type]
+                # Use smart matching when multiple windows share same app_type
+                if len(candidates) > 1:
+                    match, _score = self.wm.match_window(identifier, candidates, threshold)
+                    if match:
+                        candidates.remove(match)
+                    else:
+                        match = candidates.pop(0)
+                else:
+                    match = candidates.pop(0)
+
                 self.wm.restore_window(match.hwnd)
-                # Set borderless state if specified
                 saved_borderless = window_data.get('is_borderless', False)
                 if self.wm.is_borderless(match.hwnd) != saved_borderless:
                     self.wm.set_borderless(match.hwnd, saved_borderless)
@@ -106,47 +105,14 @@ class LayoutManager:
                 if self.wm.move_window(match.hwnd, pos['x'], pos['y'], pos['width'], pos['height']):
                     applied += 1
             else:
-                # Try to launch if auto_launch enabled
-                if window_data.get('auto_launch') and window_data.get('exe_path'):
-                    try:
-                        subprocess.Popen([window_data['exe_path']])
-                        launched.append(app_type)
-                        # Background thread: wait for window to appear then position it
-                        pos = window_data['position']
-                        saved_borderless = window_data.get('is_borderless', False)
-                        t = threading.Thread(
-                            target=self._wait_and_position,
-                            args=(app_type, pos, saved_borderless, existing_hwnds),
-                            daemon=True,
-                        )
-                        t.start()
-                    except Exception:
-                        failed.append(f"{app_type} (launch failed)")
-                else:
-                    failed.append(f"{app_type} window")
+                failed.append(f"{app_type} window")
 
         return {
             "success": True,
             "applied": applied,
             "total": len(layout_data),
             "failed": failed,
-            "launched": launched
         }
-
-    def _wait_and_position(self, app_type: str, pos: dict, borderless: bool,
-                           existing_hwnds: set, timeout: float = 12.0):
-        """Poll for a newly launched window by app_type and reposition it."""
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            time.sleep(0.5)
-            for w in self.wm.get_all_windows_with_minimized():
-                if self.wm.get_app_type(w) == app_type and w.hwnd not in existing_hwnds:
-                    self.wm.restore_window(w.hwnd)
-                    if self.wm.is_borderless(w.hwnd) != borderless:
-                        self.wm.set_borderless(w.hwnd, borderless)
-                    self.wm.move_window(w.hwnd, pos['x'], pos['y'], pos['width'], pos['height'])
-                    return
-        print(f"[layouts] Timed out waiting for {app_type} window")
 
     def delete_layout(self, name: str) -> bool:
         """Delete a saved layout"""

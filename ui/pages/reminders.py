@@ -10,8 +10,32 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QTimer, QDate, QTime, QEvent
+from PyQt6.QtGui import QPainter
 
 from ui.styles import COLORS, font, R, fmt_time
+
+
+class _ElidedLabel(QLabel):
+    """QLabel that elides text with '...' when too long."""
+    is_elided = False
+
+    def minimumSizeHint(self):
+        sh = super().minimumSizeHint()
+        return sh.__class__(0, sh.height())
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setFont(self.font())
+        painter.setPen(self.palette().windowText().color())
+        elided = painter.fontMetrics().elidedText(
+            self.text(), Qt.TextElideMode.ElideRight, self.width()
+        )
+        self.is_elided = (elided != self.text())
+        painter.drawText(
+            self.rect(),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
 
 
 class _HoverRow(QWidget):
@@ -49,6 +73,9 @@ class _ExpandableRow(QWidget):
     def __init__(self, header_widget, detail_text="", parent=None):
         super().__init__(parent)
         self._expanded = False
+        self._header_elided_label = None  # set via set_elided_label()
+        self._full_label_widget = None
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -73,9 +100,20 @@ class _ExpandableRow(QWidget):
         self._detail.setVisible(False)
         layout.addWidget(self._detail)
 
-    def add_detail_line(self, text, color=None):
+    def set_elided_label(self, elided_label):
+        """Register the header's _ElidedLabel so expand can show full text when truncated."""
+        self._header_elided_label = elided_label
+        # Pre-create full label widget at top of detail panel (hidden until needed)
+        self._full_label_widget = QLabel(elided_label.text())
+        self._full_label_widget.setFont(font(12, "bold"))
+        self._full_label_widget.setStyleSheet(f"color: {COLORS['text']};")
+        self._full_label_widget.setWordWrap(True)
+        self._full_label_widget.setVisible(False)
+        self._detail_layout.insertWidget(0, self._full_label_widget)
+
+    def add_detail_line(self, text, color=None, bold=False):
         lbl = QLabel(text)
-        lbl.setFont(font(10))
+        lbl.setFont(font(12 if bold else 10, "bold" if bold else "normal"))
         lbl.setStyleSheet(f"color: {color or COLORS['text_muted']};")
         lbl.setWordWrap(True)
         self._detail_layout.addWidget(lbl)
@@ -91,6 +129,14 @@ class _ExpandableRow(QWidget):
             # Update arrow if present
             if hasattr(self, '_arrow'):
                 self._arrow.setText("▾" if self._expanded else "▸")
+            # Swap truncated header label ↔ full detail label
+            if self._header_elided_label and self._full_label_widget:
+                if self._expanded and self._header_elided_label.is_elided:
+                    self._header_elided_label.setVisible(False)
+                    self._full_label_widget.setVisible(True)
+                else:
+                    self._header_elided_label.setVisible(True)
+                    self._full_label_widget.setVisible(False)
         super().mousePressEvent(event)
 
 
@@ -110,6 +156,7 @@ class RemindersPage(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget()
         self._root = QVBoxLayout(content)
         self._root.setContentsMargins(16, 12, 16, 16)
@@ -132,8 +179,8 @@ class RemindersPage(QWidget):
         self._clear_all_btn.clicked.connect(self._clear_all_expired)
         self._clear_all_btn.setVisible(False)
         exp_hdr.addWidget(self._clear_all_btn)
-        exp_hdr_w = QWidget(); exp_hdr_w.setLayout(exp_hdr)
-        self._root.addWidget(exp_hdr_w)
+        self._expired_header = QWidget(); self._expired_header.setLayout(exp_hdr)
+        self._root.addWidget(self._expired_header)
         self._expired_frame = QFrame()
         self._expired_frame.setProperty("section", True)
         self._expired_layout = QVBoxLayout(self._expired_frame)
@@ -142,7 +189,8 @@ class RemindersPage(QWidget):
         self._root.addWidget(self._expired_frame)
 
         # ── Next 24 Hours (non-recurring) ─────────────────────────────
-        self._root.addWidget(_section_label("NEXT 24 HOURS"))
+        self._upcoming_header = _section_label("NEXT 24 HOURS")
+        self._root.addWidget(self._upcoming_header)
         self._upcoming_frame = QFrame()
         self._upcoming_frame.setProperty("section", True)
         self._upcoming_layout = QVBoxLayout(self._upcoming_frame)
@@ -277,12 +325,31 @@ class RemindersPage(QWidget):
         row, h = self._hrow()
         h.addWidget(_field_label("Duration"))
         self._rem_h = QLineEdit(); self._rem_h.setPlaceholderText("0h"); self._rem_h.setFixedWidth(48); self._rem_h.setFixedHeight(28)
-        self._rem_m = QLineEdit(); self._rem_m.setPlaceholderText("25m"); self._rem_m.setFixedWidth(48); self._rem_m.setFixedHeight(28)
+        self._rem_m = QLineEdit(); self._rem_m.setPlaceholderText("0m"); self._rem_m.setFixedWidth(48); self._rem_m.setFixedHeight(28)
         self._rem_s = QLineEdit(); self._rem_s.setPlaceholderText("0s"); self._rem_s.setFixedWidth(48); self._rem_s.setFixedHeight(28)
         for w in (self._rem_h, self._rem_m, self._rem_s):
             h.addWidget(w)
         h.addStretch()
         self._fields_layout.addWidget(row)
+
+        # Quick presets
+        preset_row, ph = self._hrow()
+        ph.addWidget(_field_label("Quick"))
+        preset_ss = (
+            f"QPushButton {{ color: {COLORS['text_dim']}; background: {COLORS['surface_light']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 12px; padding: 2px 10px; }}"
+            f"QPushButton:hover {{ color: {COLORS['text']}; border-color: {COLORS['text_dim']}; }}"
+        )
+        for label, mins in [("5m", 5), ("15m", 15), ("30m", 30), ("1h", 60)]:
+            btn = QPushButton(label)
+            btn.setFixedSize(44, 24)
+            btn.setFont(font(10))
+            btn.setStyleSheet(preset_ss)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _, m=mins: self._fill_timer_preset(m))
+            ph.addWidget(btn)
+        ph.addStretch()
+        self._fields_layout.addWidget(preset_row)
 
         msg_row, mh = self._hrow()
         mh.addWidget(_field_label("Message"))
@@ -381,6 +448,12 @@ class RemindersPage(QWidget):
             self._build_recur_interval_fields()
         else:
             self._build_recur_time_fields()
+
+    def _fill_timer_preset(self, minutes):
+        h, m = divmod(minutes, 60)
+        self._rem_h.setText(str(h) if h else "")
+        self._rem_m.setText(str(m) if m else "")
+        self._rem_s.setText("")
 
     def _on_type_change(self, t):
         builders = {
@@ -758,9 +831,11 @@ class RemindersPage(QWidget):
         self._tab_recur_btn.setStyleSheet(active_ss if self._active_tab == 1 else inactive_ss)
 
     def _render_expired(self, entries):
-        self._clear_all_btn.setVisible(bool(entries))
-        if not entries:
-            self._expired_layout.addWidget(_empty("No expired reminders"))
+        has_entries = bool(entries)
+        self._expired_header.setVisible(has_entries)
+        self._expired_frame.setVisible(has_entries)
+        self._clear_all_btn.setVisible(has_entries)
+        if not has_entries:
             return
         for i, entry in enumerate(entries):
             if i > 0:
@@ -771,8 +846,10 @@ class RemindersPage(QWidget):
                 self._expired_layout.addWidget(self._fired_row(entry))
 
     def _render_upcoming(self, entries):
-        if not entries:
-            self._upcoming_layout.addWidget(_empty("Nothing in the next 24 hours"))
+        has_entries = bool(entries)
+        self._upcoming_header.setVisible(has_entries)
+        self._upcoming_frame.setVisible(has_entries)
+        if not has_entries:
             return
         now = _time.time()
         for i, entry in enumerate(entries):
@@ -819,10 +896,10 @@ class RemindersPage(QWidget):
         row.addWidget(badge)
 
         # Name
-        name = QLabel(entry.label)
+        name = _ElidedLabel(entry.label)
         name.setFont(font(12))
-        row.addWidget(name)
-        row.addStretch()
+        name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(name, stretch=1)
 
         # Time / countdown
         if entry.type == "timer":
@@ -851,10 +928,9 @@ class RemindersPage(QWidget):
 
         exp = _ExpandableRow(header, detail_text)
         exp._arrow = arrow
+        exp.set_elided_label(name)
 
-        # Extra detail lines
         if entry.type == "timer":
-            created_dt = datetime.fromtimestamp(entry.created)
             exp.add_detail_line(f"Started {_friendly_date(entry.created)}")
         elif entry.type == "reminder":
             fire_dt = datetime.fromtimestamp(entry.fire_at)
@@ -880,36 +956,36 @@ class RemindersPage(QWidget):
         row.addWidget(badge)
 
         # Name
-        name = QLabel(entry.label)
+        name = _ElidedLabel(entry.label)
         name.setFont(font(12))
         name.setStyleSheet(f"color: {COLORS['text_dim']};")
-        row.addWidget(name)
-        row.addStretch()
+        name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(name, stretch=1)
 
         # Fired time
-        fired_text = _friendly_date(entry.fire_at, prefix="Fired")
-        fired_lbl = QLabel(fired_text)
+        fired_lbl = QLabel(_friendly_date(entry.fire_at))
         fired_lbl.setFont(font(10))
         fired_lbl.setStyleSheet(f"color: {COLORS['warning']};")
         row.addWidget(fired_lbl)
 
-        # Snooze
-        for lbl, secs in [("💤5", 300), ("💤15", 900)]:
-            btn = QPushButton(lbl)
-            btn.setFixedSize(64, 24)
-            btn.setFont(font(9))
-            btn.setStyleSheet(
-                f"QPushButton {{ color: {COLORS['text_dim']}; background: transparent; "
-                f"border: 1px solid {COLORS['border']}; border-radius: 3px; }}"
-                f"QPushButton:hover {{ color: {COLORS['text']}; border-color: {COLORS['text_dim']}; }}"
-            )
-            btn.clicked.connect(lambda _, eid=entry.id, s=secs: self._snooze(eid, s))
+        # Snooze (5m)
+        snooze_btn = QPushButton("💤")
+        snooze_btn.setFixedSize(40, 24)
+        snooze_btn.setFont(font(9))
+        snooze_btn.setStyleSheet(
+            f"QPushButton {{ color: {COLORS['text_dim']}; background: transparent; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 3px; }}"
+            f"QPushButton:hover {{ color: {COLORS['text']}; border-color: {COLORS['text_dim']}; }}"
+        )
+        snooze_btn.clicked.connect(lambda _, eid=entry.id: self._snooze(eid, 300))
+        row.addWidget(snooze_btn)
+        header.add_action(snooze_btn)
+
+        edit_btn = _emoji_btn("✏️", lambda _, e=entry: self._open_edit_dialog(e))
+        del_btn = _emoji_btn("🗑️", lambda _, eid=entry.id: self._cancel(eid), danger=True)
+        for btn in (edit_btn, del_btn):
             row.addWidget(btn)
             header.add_action(btn)
-
-        del_btn = _emoji_btn("🗑️", lambda _, eid=entry.id: self._cancel(eid), danger=True)
-        row.addWidget(del_btn)
-        header.add_action(del_btn)
 
         # Build expandable wrapper
         detail_text = ""
@@ -918,9 +994,8 @@ class RemindersPage(QWidget):
 
         exp = _ExpandableRow(header, detail_text)
         exp._arrow = arrow
+        exp.set_elided_label(name)
 
-        # Show when it was created
-        created_dt = datetime.fromtimestamp(entry.created)
         exp.add_detail_line(f"Created {_friendly_date(entry.created)}")
 
         return exp
@@ -943,10 +1018,10 @@ class RemindersPage(QWidget):
         dot.setFixedWidth(22)
         row.addWidget(dot)
 
-        name = QLabel(entry.label)
+        name = _ElidedLabel(entry.label)
         name.setFont(font(12))
-        row.addWidget(name)
-        row.addStretch()
+        name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(name, stretch=1)
 
         dismiss_btn = QPushButton("Dismiss")
         dismiss_btn.setFixedSize(68, 26)
@@ -961,6 +1036,8 @@ class RemindersPage(QWidget):
 
         exp = _ExpandableRow(header)
         exp._arrow = arrow
+        exp.set_elided_label(name)
+
         exp.add_detail_line(_recur_desc(entry.recur))
         exp.add_detail_line(f"Fired {_friendly_date(entry.fire_at)}", COLORS['warning'])
 
@@ -985,15 +1062,15 @@ class RemindersPage(QWidget):
         row.addWidget(dot)
 
         # Name + schedule on one line
-        name = QLabel(entry.label)
+        name = _ElidedLabel(entry.label)
         name.setFont(font(12))
-        row.addWidget(name)
+        name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(name, stretch=1)
 
         sched = QLabel(_recur_desc(entry.recur))
         sched.setFont(font(10))
         sched.setStyleSheet(f"color: {COLORS['text_muted']};")
         row.addWidget(sched)
-        row.addStretch()
 
         # Next fire
         next_text = _friendly_date(entry.fire_at, prefix="Next")
@@ -1011,6 +1088,8 @@ class RemindersPage(QWidget):
 
         exp = _ExpandableRow(header)
         exp._arrow = arrow
+        exp.set_elided_label(name)
+
         fire_dt = datetime.fromtimestamp(entry.fire_at)
         exp.add_detail_line(f"Next: {fire_dt.strftime('%A, %B %d')} at {fmt_time(fire_dt, seconds=False).strip()}")
         if entry.message and entry.message != entry.label:
@@ -1112,6 +1191,7 @@ def _type_badge(entry_type, dimmed=False):
     text = {"timer": "⏱️", "reminder": "📌"}.get(entry_type, entry_type.upper())
     lbl = QLabel(text)
     lbl.setFont(font(8, "bold"))
+    lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     color = COLORS['text_muted'] if dimmed else COLORS['text_dim']
     lbl.setStyleSheet(
         f"color: {color}; background: {COLORS['surface_light']}; "
@@ -1164,7 +1244,7 @@ def _friendly_date(timestamp, prefix=""):
 
     result = f"{day_part} {time_str}"
     if prefix:
-        result = f"{prefix} {result.lower()}" if day_part in ("Today", "Tomorrow", "Yesterday") else f"{prefix} {result}"
+        result = f"{prefix} {result}"
     return result
 
 

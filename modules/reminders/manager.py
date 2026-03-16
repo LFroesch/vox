@@ -185,6 +185,10 @@ class ReminderManager:
         lower = re.sub(r'\ba\s*\.\s*m\s*\.?', 'am', lower)
         lower = re.sub(r'\bp\s*\.\s*m\s*\.?', 'pm', lower)
 
+        # Normalize recurring synonyms so they hit the "every" gate
+        lower = re.sub(r'\beveryday\b', 'every day', lower)
+        lower = re.sub(r'\bdaily\b', 'every day', lower)
+
         # Must look like a reminder/timer request
         _TRIGGER = (
             r'\b(?:remind|reminder|timer|alarm|set\s+(?:a\s+)?(?:timer|alarm|reminder)'

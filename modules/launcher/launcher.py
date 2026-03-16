@@ -121,12 +121,15 @@ class Launcher:
                 # Fallback to start command if startfile fails
                 subprocess.run(f'start "" "{path}"', shell=True, creationflags=_NO_WINDOW)
                 return True
+        args = [item.args] if item.args else []
         if os.path.exists(path):
-            args = item.args.split() if item.args else []
             subprocess.Popen([path] + args)
             return True
         # Try via start command — use expanded path, quoted for spaces
-        subprocess.run(f'start "" "{path}"', shell=True, creationflags=_NO_WINDOW)
+        cmd = f'start "" "{path}"'
+        if item.args:
+            cmd += f' "{item.args}"'
+        subprocess.run(cmd, shell=True, creationflags=_NO_WINDOW)
         return True
 
     def _launch_script(self, item: LaunchItem) -> bool:
@@ -136,7 +139,7 @@ class Launcher:
             return False
 
         ext = Path(path).suffix.lower()
-        args = item.args.split() if item.args else []
+        args = [item.args] if item.args else []
 
         if ext == '.py':
             subprocess.Popen(['python', path] + args)

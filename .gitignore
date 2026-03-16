@@ -1,0 +1,11 @@
+.claude/
+WORK.md
+agent_spec.md
+CLAUDE.md
+__pycache__/
+*.pyc
+dist/
+build/
+*.egg-info/
+.env
+*.spec.bak

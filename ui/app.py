@@ -25,6 +25,7 @@ from modules.windows import WindowManager, LayoutManager
 from modules.launcher import Launcher
 from modules.clipboard import ClipboardManager
 from modules.reminders import ReminderManager, ReminderEntry
+from modules.workflows import WorkflowManager
 
 from ui.styles import COLORS, font, R, build_stylesheet, set_ui_scale, fmt_time
 from ui.widget import FloatingWidget
@@ -43,14 +44,17 @@ class VoxApp(QMainWindow):
     voice_error_signal = pyqtSignal(str)
     clipboard_signal = pyqtSignal(object)
     reminder_fire_signal = pyqtSignal(object)
+    workflow_done_signal = pyqtSignal(str)
     restore_signal = pyqtSignal()
 
     def __init__(self, q_app: QApplication):
         super().__init__()
         self._q_app = q_app
         self.setWindowTitle("vox")
-        self.setMinimumSize(700, 500)
-        self.resize(900, 650)
+        self.setFixedSize(900, 650)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowMaximizeButtonHint
+        )
 
         # Initialize core
         self.config = get_config()
@@ -79,12 +83,16 @@ class VoxApp(QMainWindow):
         self.launcher = Launcher()
         self.clipboard_mgr = ClipboardManager()
         self.reminders = ReminderManager(self.config.data_dir)
+        self.workflow_manager = WorkflowManager(self.launcher, self.layout_manager)
 
         # Register voice commands
         self.commands.register_layout_commands(
             self.layout_manager, on_load_callback=self._on_layout_loaded
         )
         self.commands.register_launcher_commands(self.launcher)
+        self.commands.register_workflow_commands(
+            self.workflow_manager, on_run_callback=self._on_workflow_run
+        )
 
         # State
         self.last_command = ""
@@ -99,6 +107,7 @@ class VoxApp(QMainWindow):
         self.voice_error_signal.connect(self._handle_voice_error)
         self.clipboard_signal.connect(self._handle_clipboard_entry)
         self.reminder_fire_signal.connect(self._handle_reminder_fire)
+        self.workflow_done_signal.connect(self._on_workflow_complete)
         self.restore_signal.connect(self._do_restore)
 
         # Wire callbacks → emit signals
@@ -188,6 +197,7 @@ class VoxApp(QMainWindow):
             item.setSizeHint(QSize(150, 44))
             self.sidebar.addItem(item)
 
+        self._reminders_sidebar_item = self.sidebar.item(4)  # "Reminders" row
         self.sidebar.setCurrentRow(0)
         self.sidebar.currentRowChanged.connect(self._on_page_change)
         body.addWidget(self.sidebar)
@@ -286,10 +296,15 @@ class VoxApp(QMainWindow):
         self.widget.set_status(text, color)
 
     def push_reminders_to_ui(self):
-        """Refresh the reminders page and widget."""
+        """Refresh the reminders page, widget, and sidebar badge."""
         if hasattr(self, 'page_reminders'):
             self.page_reminders.refresh_list()
-        self.widget.update_reminders(self.reminders.get_active())
+        active = self.reminders.get_active()
+        self.widget.update_reminders(active)
+        # Sidebar badge count (expired = fired one-shots + triggered recurring)
+        count = len([e for e in active if e.fired or (e.recur and e.triggered)])
+        badge = f"  ({count})" if count > 0 else ""
+        self._reminders_sidebar_item.setText(f"⏰  Reminders{badge}")
 
     def _dismiss_reminder_from_widget(self, eid):
         self.reminders.dismiss(eid)
@@ -351,7 +366,6 @@ class VoxApp(QMainWindow):
         main_layout.addWidget(scroll1)
 
         window_vars = {}
-        auto_launch_vars = {}
 
         for key, wd in layout_data.items():
             if 'identifier' not in wd:
@@ -375,11 +389,6 @@ class VoxApp(QMainWindow):
             p_lbl.setStyleSheet(f"color: {COLORS['text_dim']};")
             row.addWidget(p_lbl)
             row.addStretch()
-
-            auto_cb = QCheckBox("Auto-launch")
-            auto_cb.setChecked(wd.get('auto_launch', False))
-            auto_launch_vars[key] = auto_cb
-            row.addWidget(auto_cb)
 
             row_w = QWidget()
             row_w.setLayout(row)
@@ -424,9 +433,7 @@ class VoxApp(QMainWindow):
                 t_lbl.setFont(font(12))
                 row.addWidget(t_lbl)
                 row.addStretch()
-                auto_cb = QCheckBox("Auto-launch")
-                row.addWidget(auto_cb)
-                add_window_vars[window.hwnd] = (cb, window, auto_cb)
+                add_window_vars[window.hwnd] = (cb, window)
 
                 row_w = QWidget()
                 row_w.setLayout(row)
@@ -449,11 +456,9 @@ class VoxApp(QMainWindow):
             for key, wd in layout_data.items():
                 if key in window_vars and window_vars[key].isChecked():
                     new_layout[key] = wd.copy()
-                    if key in auto_launch_vars:
-                        new_layout[key]['auto_launch'] = auto_launch_vars[key].isChecked()
 
             next_idx = len(new_layout)
-            for hwnd, (cb, window, auto_cb) in add_window_vars.items():
+            for hwnd, (cb, window) in add_window_vars.items():
                 if cb.isChecked():
                     identifier = self.window_manager.create_smart_identifier(window)
                     new_layout[f"window_{next_idx}"] = {
@@ -461,7 +466,6 @@ class VoxApp(QMainWindow):
                         "position": {"x": window.x, "y": window.y,
                                      "width": window.width, "height": window.height},
                         "exe_path": window.exe_path,
-                        "auto_launch": auto_cb.isChecked(),
                         "is_borderless": window.is_borderless,
                     }
                     next_idx += 1
@@ -512,9 +516,10 @@ class VoxApp(QMainWindow):
             self.widget.show()
 
     def _get_widget_actions(self):
-        actions = {"layouts": [], "launchers": []}
+        actions = {"layouts": [], "launchers": [], "workflows": []}
         fav_layouts = set(self.config.get('favorites', 'layouts', default=[]))
         fav_launchers = set(self.config.get('favorites', 'launchers', default=[]))
+        fav_workflows = set(self.config.get('favorites', 'workflows', default=[]))
 
         for name in self.layout_manager.get_layout_names():
             if name in fav_layouts:
@@ -523,6 +528,10 @@ class VoxApp(QMainWindow):
         for item in self.launcher.get_all_items():
             if item.name in fav_launchers:
                 actions["launchers"].append((item.name, lambda i=item: self.launcher.launch(i)))
+
+        for name in self.workflow_manager.get_names():
+            if name in fav_workflows:
+                actions["workflows"].append((name, lambda n=name: self.run_workflow(n)))
 
         return actions
 
@@ -630,6 +639,19 @@ class VoxApp(QMainWindow):
         msg = f"Layout '{name}': {result['applied']}/{result['total']}"
         color = COLORS["success"] if result['applied'] > 0 else COLORS["warning"]
         self.set_status(msg, color)
+
+    def run_workflow(self, name: str):
+        self.set_status(f"Running workflow '{name}'...", COLORS["accent"])
+        self.workflow_manager.execute(
+            name, on_complete=lambda n: self.workflow_done_signal.emit(n)
+        )
+
+    def _on_workflow_run(self, name: str):
+        """Voice callback for running a workflow."""
+        self.run_workflow(name)
+
+    def _on_workflow_complete(self, name: str):
+        self.set_status(f"Workflow '{name}' complete", COLORS["success"])
 
     # ── Note / reminder helpers ──
 
