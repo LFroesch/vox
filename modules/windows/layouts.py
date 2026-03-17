@@ -98,7 +98,8 @@ class LayoutManager:
                 else:
                     match = candidates.pop(0)
 
-                self.wm.restore_window(match.hwnd)
+                if self.wm.is_minimized(match.hwnd):
+                    self.wm.restore_window(match.hwnd)
                 saved_borderless = window_data.get('is_borderless', False)
                 if self.wm.is_borderless(match.hwnd) != saved_borderless:
                     self.wm.set_borderless(match.hwnd, saved_borderless)

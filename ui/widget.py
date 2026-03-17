@@ -509,6 +509,21 @@ class FloatingWidget(QWidget):
             cfg.set("ui", "widget_y", value=pos.y())
         self._drag_pos = None
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        cfg = get_config()
+        sx = cfg.get("ui", "widget_x")
+        sy = cfg.get("ui", "widget_y")
+        if sx is not None and sy is not None:
+            self.move(sx, sy)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        pos = self.pos()
+        cfg = get_config()
+        cfg.set("ui", "widget_x", value=pos.x())
+        cfg.set("ui", "widget_y", value=pos.y())
+
     def mouseDoubleClickEvent(self, event):
         self.show_main()
 
