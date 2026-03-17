@@ -21,6 +21,7 @@ class WindowInfo:
     width: int
     height: int
     is_borderless: bool = False
+    is_maximized: bool = False
 
     @property
     def rect(self) -> Tuple[int, int, int, int]:
@@ -136,6 +137,10 @@ class WindowManager:
 
             style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
             is_borderless = not (style & win32con.WS_CAPTION)
+            try:
+                is_maximized = bool(win32gui.IsZoomed(hwnd))
+            except Exception:
+                is_maximized = False
 
             return WindowInfo(
                 hwnd=hwnd,
@@ -148,7 +153,8 @@ class WindowManager:
                 y=rect[1],
                 width=rect[2] - rect[0],
                 height=rect[3] - rect[1],
-                is_borderless=is_borderless
+                is_borderless=is_borderless,
+                is_maximized=is_maximized
             )
         except Exception:
             return None

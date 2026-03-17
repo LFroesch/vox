@@ -342,9 +342,8 @@ class FloatingWidget(QWidget):
         # Update header with count
         now = _time.time()
         triggered = [e for e in entries if getattr(e, 'triggered', False)]
-        pending = [e for e in entries if not getattr(e, 'recur', None) and not getattr(e, 'fired', False) and e.fire_at <= now + 86400]
         fired = [e for e in entries if not getattr(e, 'recur', None) and getattr(e, 'fired', False)]
-        count = len(triggered) + len(pending) + len(fired)
+        count = len(triggered) + len(fired)
         label = f"Reminders ({count})" if count else "Reminders"
         arrow = "▾" if self._reminders_expanded else "▸"
         self._reminders_header.setText(f"{arrow}  {label}")
@@ -356,11 +355,9 @@ class FloatingWidget(QWidget):
         entries = self._rem_entries
 
         triggered = [e for e in entries if getattr(e, 'triggered', False)]
-        now = _time.time()
-        pending = [e for e in entries if not getattr(e, 'recur', None) and not getattr(e, 'fired', False) and e.fire_at <= now + 86400]
         fired = [e for e in entries if not getattr(e, 'recur', None) and getattr(e, 'fired', False)]
 
-        items = triggered + sorted(pending, key=lambda e: e.fire_at) + fired
+        items = triggered + fired
         if not items:
             lbl = QLabel("No active reminders")
             lbl.setFont(font(11))

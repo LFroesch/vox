@@ -464,6 +464,9 @@ class CommandManager:
             self.custom_responses.pop(k, None)
         # Add new ones
         for name in self.layout_manager.get_layout_names():
+            layout_data = self.layout_manager.layouts.get(name, {})
+            meta = layout_data.get('_meta', {})
+            voice_phrase = meta.get('voice_phrase', '').strip()
             response = f"Swapping to {name} layout"
             def make_loader(layout_name):
                 def load():
@@ -474,9 +477,13 @@ class CommandManager:
                 return load
             loader = make_loader(name)
             # Register: "coding", "coding layout", "swap coding", "launch coding", etc.
-            phrases = [name.lower(), f"{name} layout".lower()]
+            base = voice_phrase.lower() if voice_phrase else name.lower()
+            phrases = [base, f"{base} layout"]
             for prefix in ("swap", "launch", "load", "switch to", "open"):
-                phrases.append(f"{prefix} {name}".lower())
+                phrases.append(f"{prefix} {base}")
+            # Also register the name itself if voice phrase differs
+            if voice_phrase and voice_phrase.lower() != name.lower():
+                phrases.append(name.lower())
             for phrase in phrases:
                 self.custom_commands[phrase] = loader
                 self.custom_responses[phrase] = response

@@ -53,6 +53,11 @@ def main():
         sys.exit(0)
 
     try:
+        # Set AppUserModelID so Windows treats this as its own app
+        # (enables taskbar overlay icons, proper icon grouping, etc.)
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("vox.app")
+
         from PyQt6.QtWidgets import QApplication
         q_app = QApplication(sys.argv)
         q_app.setApplicationName("vox")

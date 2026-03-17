@@ -1,5 +1,6 @@
 """Main vox application — QMainWindow with sidebar navigation."""
 
+import ctypes
 import socket
 import subprocess
 import sys
@@ -12,10 +13,10 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QListWidget, QListWidgetItem,
     QStackedWidget, QMessageBox, QDialog, QScrollArea,
-    QCheckBox, QApplication, QSystemTrayIcon, QMenu,
+    QCheckBox, QApplication, QSystemTrayIcon, QMenu, QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 
 from core.config import get_config
 from core.hotkeys import HotkeyManager
@@ -30,7 +31,7 @@ from modules.workflows import WorkflowManager
 from ui.styles import COLORS, font, R, build_stylesheet, set_ui_scale, fmt_time
 from ui.widget import FloatingWidget
 from ui.pages import (
-    HomePage, VoicePage, WindowsPage, LaunchersPage,
+    HomePage, HelpPage, WindowsPage, LaunchersPage,
     ClipboardPage, RemindersPage, SettingsPage,
 )
 
@@ -99,7 +100,7 @@ class VoxApp(QMainWindow):
         self.snippets: List[Dict] = []
         self._load_snippets()
         self._notes_path = Path(self.config.config_dir) / "notes.md"
-        self._dirty = {"home": True, "voice": True, "windows": True, "clipboard": True}
+        self._dirty = {"home": True, "help": True, "windows": True, "clipboard": True}
 
         # Wire signals
         self.voice_result_signal.connect(self._handle_voice_result)
@@ -140,6 +141,9 @@ class VoxApp(QMainWindow):
         # Tray icon
         self._tray_icon = None
 
+        # Taskbar badge overlay
+        self._init_taskbar_badge()
+
         # Single-instance listener
         self._instance_listener = None
         self._start_instance_listener()
@@ -149,6 +153,8 @@ class VoxApp(QMainWindow):
         self.clipboard_mgr.start_monitoring()
         self.reminders.start()  # Start after UI is fully built
         self.push_reminders_to_ui()  # Initial widget state
+        # Re-check badge after taskbar button is fully registered
+        QTimer.singleShot(5000, self.push_reminders_to_ui)
 
     # ── Icon helper ──
 
@@ -159,6 +165,147 @@ class VoxApp(QMainWindow):
         else:
             p = Path(__file__).parent.parent / "myicon.ico"
         return p if p.exists() else None
+
+    # ── Taskbar badge (Windows ITaskbarList3 overlay icon) ──
+
+    def _badge_log(self, msg):
+        """Write taskbar badge debug info to ~/.vox/badge_debug.log."""
+        try:
+            log_path = Path.home() / ".vox" / "badge_debug.log"
+            with open(log_path, "a") as f:
+                f.write(f"{datetime.now():%H:%M:%S} {msg}\n")
+        except Exception:
+            pass
+
+    def _init_taskbar_badge(self):
+        """Initialize COM ITaskbarList3 for taskbar overlay icons (pure ctypes)."""
+        self._taskbar_list = None
+        if sys.platform != "win32":
+            return
+        try:
+            # Clear previous log
+            log_path = Path.home() / ".vox" / "badge_debug.log"
+            log_path.write_text("")
+
+            class GUID(ctypes.Structure):
+                _fields_ = [
+                    ("Data1", ctypes.c_ulong), ("Data2", ctypes.c_ushort),
+                    ("Data3", ctypes.c_ushort), ("Data4", ctypes.c_ubyte * 8),
+                ]
+            CLSID = GUID(0x56FDF344, 0xFD6D, 0x11D0,
+                         (ctypes.c_ubyte * 8)(0x95, 0x8A, 0x00, 0x60, 0x97, 0xC9, 0xA0, 0x90))
+            IID = GUID(0xEA1AFB91, 0x9E28, 0x4B86,
+                       (ctypes.c_ubyte * 8)(0x90, 0xE9, 0x9E, 0x9F, 0x8A, 0x5E, 0xEF, 0xAF))
+            punk = ctypes.c_void_p()
+            hr = ctypes.windll.ole32.CoCreateInstance(
+                ctypes.byref(CLSID), None, 0x17,  # CLSCTX_ALL
+                ctypes.byref(IID), ctypes.byref(punk),
+            )
+            self._badge_log(f"CoCreateInstance hr=0x{hr & 0xFFFFFFFF:08x} punk={punk.value}")
+            if hr == 0 and punk.value:
+                self._taskbar_list = punk.value
+                # HrInit = vtable[3](this)
+                vtbl_ptr = ctypes.cast(punk, ctypes.POINTER(ctypes.c_void_p))[0]
+                fn_addr = ctypes.cast(vtbl_ptr, ctypes.POINTER(ctypes.c_void_p))[3]
+                fn = ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(fn_addr)
+                fn(punk.value)
+                self._badge_log("HrInit OK")
+            else:
+                self._badge_log("CoCreateInstance FAILED")
+        except Exception as e:
+            self._badge_log(f"init error: {e}")
+
+    def _update_taskbar_badge(self, count: int):
+        """Set or clear the taskbar overlay icon badge."""
+        if sys.platform != "win32" or not self._taskbar_list:
+            return
+        try:
+            raw_hwnd = int(self.winId())
+            # Get the actual top-level window the taskbar tracks
+            GA_ROOT = 2
+            hwnd = ctypes.windll.user32.GetAncestor(raw_hwnd, GA_ROOT) or raw_hwnd
+            hicon = self._create_badge_hicon(count) if count > 0 else 0
+            # SetOverlayIcon = vtable[18](this, HWND, HICON, LPCWSTR)
+            vtbl_ptr = ctypes.cast(self._taskbar_list, ctypes.POINTER(ctypes.c_void_p))[0]
+            fn_addr = ctypes.cast(vtbl_ptr, ctypes.POINTER(ctypes.c_void_p))[18]
+            fn = ctypes.CFUNCTYPE(
+                ctypes.c_long,    # HRESULT
+                ctypes.c_void_p,  # this
+                ctypes.c_void_p,  # HWND
+                ctypes.c_void_p,  # HICON
+                ctypes.c_wchar_p, # LPCWSTR
+            )(fn_addr)
+            hr = fn(self._taskbar_list, hwnd, hicon, "")
+            self._badge_log(f"SetOverlayIcon raw_hwnd={raw_hwnd} hwnd={hwnd} hicon={hicon} hr=0x{hr & 0xFFFFFFFF:08x}")
+            if hicon:
+                ctypes.windll.user32.DestroyIcon(hicon)
+        except Exception as e:
+            self._badge_log(f"update error: {e}")
+
+    def _create_badge_hicon(self, count: int):
+        """Draw a red circle badge, return Win32 HICON handle."""
+        from PyQt6.QtGui import QImage
+        size = 16
+        pix = QPixmap(size, size)
+        pix.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor("#e53935"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(0, 0, size, size)
+        painter.setPen(QColor("white"))
+        painter.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        text = str(count) if count < 10 else "9+"
+        painter.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, text)
+        painter.end()
+        # QPixmap → ARGB32 bytes → Win32 HICON
+        img = pix.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+        ptr = img.bits()
+        ptr.setsize(size * size * 4)
+        pixel_data = bytes(ptr)
+
+        class BITMAPINFOHEADER(ctypes.Structure):
+            _fields_ = [
+                ("biSize", ctypes.c_uint32), ("biWidth", ctypes.c_int32),
+                ("biHeight", ctypes.c_int32), ("biPlanes", ctypes.c_ushort),
+                ("biBitCount", ctypes.c_ushort), ("biCompression", ctypes.c_uint32),
+                ("biSizeImage", ctypes.c_uint32), ("biXPelsPerMeter", ctypes.c_int32),
+                ("biYPelsPerMeter", ctypes.c_int32), ("biClrUsed", ctypes.c_uint32),
+                ("biClrImportant", ctypes.c_uint32),
+            ]
+        class ICONINFO(ctypes.Structure):
+            _fields_ = [
+                ("fIcon", ctypes.c_int), ("xHotspot", ctypes.c_uint32),
+                ("yHotspot", ctypes.c_uint32), ("hbmMask", ctypes.c_void_p),
+                ("hbmColor", ctypes.c_void_p),
+            ]
+
+        user32 = ctypes.windll.user32
+        gdi32 = ctypes.windll.gdi32
+        hdc = user32.GetDC(0)
+        bmi = BITMAPINFOHEADER()
+        bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        bmi.biWidth = size
+        bmi.biHeight = -size  # top-down DIB
+        bmi.biPlanes = 1
+        bmi.biBitCount = 32
+        ppv = ctypes.c_void_p()
+        hbm_color = gdi32.CreateDIBSection(
+            hdc, ctypes.byref(bmi), 0, ctypes.byref(ppv), None, 0,
+        )
+        if ppv.value:
+            ctypes.memmove(ppv.value, pixel_data, len(pixel_data))
+        hbm_mask = gdi32.CreateBitmap(size, size, 1, 1, None)
+        user32.ReleaseDC(0, hdc)
+        ii = ICONINFO()
+        ii.fIcon = 1
+        ii.hbmMask = hbm_mask
+        ii.hbmColor = hbm_color
+        hicon = user32.CreateIconIndirect(ctypes.byref(ii))
+        gdi32.DeleteObject(hbm_color)
+        gdi32.DeleteObject(hbm_mask)
+        self._badge_log(f"CreateIconIndirect hicon={hicon} hbm_color={hbm_color} hbm_mask={hbm_mask}")
+        return hicon
 
     # ── UI Creation ──
 
@@ -189,7 +336,7 @@ class VoxApp(QMainWindow):
             ("Launchers", "🚀"),
             ("Clipboard", "📋"),
             ("Reminders", "⏰"),
-            ("Voice", "🎤"),
+            ("Help", "❓"),
             ("Settings", "⚙️"),
         ]
         for name, icon in pages:
@@ -209,11 +356,11 @@ class VoxApp(QMainWindow):
         self.page_launchers = LaunchersPage(self)
         self.page_clipboard = ClipboardPage(self)
         self.page_reminders = RemindersPage(self)
-        self.page_voice = VoicePage(self)
+        self.page_help = HelpPage(self)
         self.page_settings = SettingsPage(self)
 
         for page in [self.page_home, self.page_windows, self.page_launchers,
-                      self.page_clipboard, self.page_reminders, self.page_voice,
+                      self.page_clipboard, self.page_reminders, self.page_help,
                       self.page_settings]:
             self.stack.addWidget(page)
 
@@ -266,7 +413,7 @@ class VoxApp(QMainWindow):
 
     def _on_page_change(self, index: int):
         self.stack.setCurrentIndex(index)
-        page_names = ["home", "windows", "launchers", "clipboard", "reminders", "voice", "settings"]
+        page_names = ["home", "windows", "launchers", "clipboard", "reminders", "help", "settings"]
         current = page_names[index] if index < len(page_names) else ""
 
         if current == "windows" and self._dirty.get("windows"):
@@ -275,16 +422,16 @@ class VoxApp(QMainWindow):
         elif current == "home" and self._dirty.get("home"):
             self.page_home.refresh_quick_actions()
             self._dirty["home"] = False
-        elif current == "voice" and self._dirty.get("voice"):
-            self.page_voice.refresh()
-            self._dirty["voice"] = False
+        elif current == "help" and self._dirty.get("help"):
+            self.page_help.refresh()
+            self._dirty["help"] = False
         elif current == "clipboard" and self._dirty.get("clipboard"):
             self.page_clipboard.refresh_history()
             self.page_clipboard.refresh_snippets()
             self._dirty["clipboard"] = False
 
     def navigate_to(self, page_name: str):
-        names = ["home", "windows", "launchers", "clipboard", "reminders", "voice", "settings"]
+        names = ["home", "windows", "launchers", "clipboard", "reminders", "help", "settings"]
         if page_name in names:
             self.sidebar.setCurrentRow(names.index(page_name))
 
@@ -305,6 +452,7 @@ class VoxApp(QMainWindow):
         count = len([e for e in active if e.fired or (e.recur and e.triggered)])
         badge = f"  ({count})" if count > 0 else ""
         self._reminders_sidebar_item.setText(f"⏰  Reminders{badge}")
+        self._update_taskbar_badge(count)
 
     def _dismiss_reminder_from_widget(self, eid):
         self.reminders.dismiss(eid)
@@ -341,18 +489,34 @@ class VoxApp(QMainWindow):
         if name not in self.layout_manager.layouts:
             return
         layout_data = self.layout_manager.layouts[name]
+        meta = layout_data.get('_meta', {})
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Edit Layout: {name}")
-        dlg.resize(520, 520)
+        dlg.resize(520, 560)
         dlg.setStyleSheet(f"QDialog {{ background: {COLORS['bg']}; }}")
 
         main_layout = QVBoxLayout(dlg)
         main_layout.setContentsMargins(12, 10, 12, 10)
 
+        # Name + voice phrase fields
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("Name:"))
+        name_edit = QLineEdit(name)
+        name_edit.setFixedHeight(28)
+        name_row.addWidget(name_edit)
+        main_layout.addLayout(name_row)
+
+        voice_row = QHBoxLayout()
+        voice_row.addWidget(QLabel("Voice:"))
+        voice_edit = QLineEdit(meta.get('voice_phrase', ''))
+        voice_edit.setPlaceholderText(f"Default: \"{name.lower()}\"")
+        voice_edit.setFixedHeight(28)
+        voice_row.addWidget(voice_edit)
+        main_layout.addLayout(voice_row)
+
         # Current windows in layout
-        QLabel(f"In Layout '{name}'").setFont(font(15, "bold"))
-        lbl = QLabel(f"In Layout '{name}'")
+        lbl = QLabel("Windows in Layout")
         lbl.setFont(font(15, "bold"))
         main_layout.addWidget(lbl)
 
@@ -452,8 +616,19 @@ class VoxApp(QMainWindow):
         save_btn.setProperty("accent", True)
 
         def do_save():
+            new_name = name_edit.text().strip()
+            if not new_name:
+                QMessageBox.warning(dlg, "No Name", "Layout name cannot be empty")
+                return
+            # Check name conflict (rename case)
+            if new_name != name and new_name in self.layout_manager.layouts:
+                QMessageBox.warning(dlg, "Name Taken", f"'{new_name}' already exists")
+                return
+
             new_layout = {}
             for key, wd in layout_data.items():
+                if key == '_meta':
+                    continue
                 if key in window_vars and window_vars[key].isChecked():
                     new_layout[key] = wd.copy()
 
@@ -467,14 +642,30 @@ class VoxApp(QMainWindow):
                                      "width": window.width, "height": window.height},
                         "exe_path": window.exe_path,
                         "is_borderless": window.is_borderless,
+                        "is_maximized": window.is_maximized,
                     }
                     next_idx += 1
 
-            self.layout_manager.layouts[name] = new_layout
+            # Save voice phrase in _meta
+            vp = voice_edit.text().strip()
+            if vp:
+                new_layout['_meta'] = {'voice_phrase': vp}
+
+            # Handle rename
+            if new_name != name:
+                del self.layout_manager.layouts[name]
+                # Update favorites
+                fav = self.config.get('favorites', 'layouts', default=[])
+                if name in fav:
+                    fav = [new_name if f == name else f for f in fav]
+                    self.config.set('favorites', 'layouts', value=fav)
+
+            self.layout_manager.layouts[new_name] = new_layout
             self.layout_manager._save_layouts()
+            self.commands._refresh_layout_commands()
             self.page_windows.refresh_saved_layouts()
-            self.mark_dirty("home", "voice")
-            self.set_status(f"Layout '{name}' updated", COLORS["success"])
+            self.mark_dirty("home", "help")
+            self.set_status(f"Layout '{new_name}' updated", COLORS["success"])
             dlg.accept()
 
         save_btn.clicked.connect(do_save)
@@ -491,7 +682,7 @@ class VoxApp(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             if self.layout_manager.delete_layout(name):
                 self.commands._refresh_layout_commands()
-                self.mark_dirty("home", "voice")
+                self.mark_dirty("home", "help")
 
     def _load_snippets(self):
         self.snippets = self.config.get('clipboard', 'snippets', default=[])
@@ -833,6 +1024,7 @@ class VoxApp(QMainWindow):
 
         self._tray_icon.setContextMenu(menu)
         self._tray_icon.activated.connect(self._on_tray_activated)
+        self._tray_icon.messageClicked.connect(self._restore_from_tray)
         self._tray_icon.show()
 
     def _on_tray_activated(self, reason):

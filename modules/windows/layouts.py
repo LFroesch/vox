@@ -53,7 +53,8 @@ class LayoutManager:
                     "height": window.height
                 },
                 "exe_path": window.exe_path,
-                "is_borderless": window.is_borderless
+                "is_borderless": window.is_borderless,
+                "is_maximized": window.is_maximized
             }
 
         self.layouts[name] = layout_data
@@ -101,9 +102,13 @@ class LayoutManager:
                 saved_borderless = window_data.get('is_borderless', False)
                 if self.wm.is_borderless(match.hwnd) != saved_borderless:
                     self.wm.set_borderless(match.hwnd, saved_borderless)
-                pos = window_data['position']
-                if self.wm.move_window(match.hwnd, pos['x'], pos['y'], pos['width'], pos['height']):
+                if window_data.get('is_maximized', False):
+                    self.wm.maximize_window(match.hwnd)
                     applied += 1
+                else:
+                    pos = window_data['position']
+                    if self.wm.move_window(match.hwnd, pos['x'], pos['y'], pos['width'], pos['height']):
+                        applied += 1
             else:
                 failed.append(f"{app_type} window")
 

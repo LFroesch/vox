@@ -369,18 +369,19 @@ class RemindersPage(QWidget):
         h0.addWidget(self._rem_msg, stretch=1)
         self._fields_layout.addWidget(r0)
 
+        self._rem_time = self._time_picker()
+
         r1, h1 = self._hrow()
         h1.addWidget(_field_label("Date"))
         self._rem_date = self._date_picker()
         h1.addWidget(self._rem_date)
-        for b in self._date_quick_btns(self._rem_date):
+        for b in self._date_quick_btns(self._rem_date, self._rem_time):
             h1.addWidget(b)
         h1.addStretch()
         self._fields_layout.addWidget(r1)
 
         r2, h2 = self._hrow()
         h2.addWidget(_field_label("Time"))
-        self._rem_time = self._time_picker()
         h2.addWidget(self._rem_time)
         h2.addStretch()
         self._fields_layout.addWidget(r2)
@@ -481,15 +482,21 @@ class RemindersPage(QWidget):
         w.setDisplayFormat("hh:mm AP")
         return w
 
-    def _date_quick_btns(self, date_widget):
+    def _date_quick_btns(self, date_widget, time_widget=None):
         today = QPushButton("Today")
         today.setFixedSize(72, 24)
         today.setFont(font(10))
         today.clicked.connect(lambda: date_widget.setDate(QDate.currentDate()))
+
+        def _set_tomorrow(checked=False):
+            date_widget.setDate(QDate.currentDate().addDays(1))
+            if time_widget:
+                time_widget.setTime(QTime(9, 0))
+
         tmrw = QPushButton("+1d")
         tmrw.setFixedSize(48, 24)
         tmrw.setFont(font(10))
-        tmrw.clicked.connect(lambda: date_widget.setDate(QDate.currentDate().addDays(1)))
+        tmrw.clicked.connect(_set_tomorrow)
         return today, tmrw
 
     # ── Add from form ─────────────────────────────────────────────────
@@ -621,19 +628,20 @@ class RemindersPage(QWidget):
             date_edit.setDisplayFormat("MMM d, yyyy")
             date_edit.setFixedHeight(28)
 
-            date_row = QHBoxLayout()
-            date_row.setSpacing(8)
-            date_row.addWidget(_field_label("Date"))
-            date_row.addWidget(date_edit, stretch=1)
-            for b in self._date_quick_btns(date_edit):
-                date_row.addWidget(b)
-            dw = QWidget(); dw.setLayout(date_row)
-            layout.addWidget(dw)
-
             time_edit = QTimeEdit()
             time_edit.setTime(QTime(dt.hour, dt.minute))
             time_edit.setDisplayFormat("hh:mm AP")
             time_edit.setFixedHeight(28)
+
+            date_row = QHBoxLayout()
+            date_row.setSpacing(8)
+            date_row.addWidget(_field_label("Date"))
+            date_row.addWidget(date_edit, stretch=1)
+            for b in self._date_quick_btns(date_edit, time_edit):
+                date_row.addWidget(b)
+            dw = QWidget(); dw.setLayout(date_row)
+            layout.addWidget(dw)
+
             add_field("Time", time_edit)
 
         if entry.type == "reminder" and not entry.recur:
@@ -1013,33 +1021,37 @@ class RemindersPage(QWidget):
         arrow.setFixedWidth(12)
         row.addWidget(arrow)
 
-        dot = QLabel("⚠️")
-        dot.setFont(font(12))
-        dot.setFixedWidth(22)
-        row.addWidget(dot)
+        # Type badge (dimmed, matches fired rows)
+        badge = _type_badge(entry.type, dimmed=True)
+        row.addWidget(badge)
 
         name = _ElidedLabel(entry.label)
         name.setFont(font(12))
         name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         row.addWidget(name, stretch=1)
 
-        dismiss_btn = QPushButton("Dismiss")
-        dismiss_btn.setFixedSize(68, 26)
-        dismiss_btn.setFont(font(10))
-        dismiss_btn.setStyleSheet(
-            f"QPushButton {{ color: {COLORS['text_dim']}; background: transparent; "
-            f"border: 1px solid {COLORS['border']}; border-radius: 3px; }}"
-            f"QPushButton:hover {{ color: {COLORS['text']}; border-color: {COLORS['text_dim']}; }}"
-        )
-        dismiss_btn.clicked.connect(lambda _, eid=entry.id: self._dismiss(eid))
-        row.addWidget(dismiss_btn)
+        # Recurring schedule in warning color (same position as fired_lbl in _fired_row)
+        sched = QLabel(_recur_desc(entry.recur))
+        sched.setFont(font(10))
+        sched.setStyleSheet(f"color: {COLORS['warning']};")
+        row.addWidget(sched)
+
+        # Spacer to match snooze button width in _fired_row
+        spacer = QWidget()
+        spacer.setFixedSize(40, 24)
+        row.addWidget(spacer)
+
+        edit_btn = _emoji_btn("✏️", lambda _, e=entry: self._open_edit_dialog(e))
+        dismiss_btn = _emoji_btn("🔄️", lambda _, eid=entry.id: self._dismiss(eid), danger=True)
+        for btn in (edit_btn, dismiss_btn):
+            row.addWidget(btn)
+            header.add_action(btn)
 
         exp = _ExpandableRow(header)
         exp._arrow = arrow
         exp.set_elided_label(name)
 
-        exp.add_detail_line(_recur_desc(entry.recur))
-        exp.add_detail_line(f"Fired {_friendly_date(entry.fire_at)}", COLORS['warning'])
+        exp.add_detail_line(f"Next: {_friendly_date(entry.fire_at)}")
 
         return exp
 

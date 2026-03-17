@@ -382,6 +382,10 @@ class ReminderManager:
             time_str = ' '.join(time_parts)
             return ('reminder', task or 'Reminder', task or 'Reminder', time_str)
 
+        # No time/duration given — default to tomorrow at 9am
+        if task:
+            return ('reminder', task, task, 'tomorrow morning')
+
         return None
 
     # ── Internal ────────────────────────────────────────────────────────────

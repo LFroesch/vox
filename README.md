@@ -8,14 +8,16 @@ A voice-powered Windows productivity hub built with Python and PyQt6. Control yo
 
 ## Features
 
-- **Voice Commands** — Google Speech Recognition with multi-candidate transcription and a fuzzy matching pipeline (search intent → exact phrase → token overlap → phonetic similarity → launcher fallback)
+- **Voice Commands** — Google Speech Recognition with multi-candidate transcription and a 5-step matching pipeline (NLP intents → search → exact phrase → fuzzy token overlap → launcher fallback)
 - **Window Layouts** — Save and restore multi-monitor window arrangements. Smart matching handles multiple instances of the same app (e.g. 5 VS Code windows). QPainter-based visual preview
 - **Workflows** — Batch-launch apps, terminals, URLs, and commands in sequence with optional auto-layout after a configurable delay. Import steps from existing launchers
 - **App Launcher** — Launch apps, terminals, URLs, folders, and scripts with per-item voice phrases and args support. Collapsible sections by type
 - **Reminders** — Timers, alarms, and reminders with calendar/time picker. Recurring schedules (daily/weekdays/weekly/interval). NLP voice input: "remind me to X at 3pm", "every weekday at 9am check email"
 - **Clipboard History** — Persistent tracking with one-click copy and saved snippets
+- **Notes** — Voice-powered note-taking ("note [text]") that appends to a notes pad on the Home page
 - **Floating Widget** — Compact always-on-top overlay showing voice status, pending reminders with countdown, and favorited quick actions
 - **System Tray** — Minimize to tray with restore on double-click
+- **Single Instance** — Only one copy runs at a time; re-launching brings the existing window forward
 
 ## Tech Stack
 
@@ -24,7 +26,7 @@ A voice-powered Windows productivity hub built with Python and PyQt6. Control yo
 | UI | PyQt6, QSS dark theme, sidebar nav + stacked pages |
 | Voice | SpeechRecognition (Google STT), pyttsx3 (TTS) |
 | Windows | pywin32 (enumerate, move, resize, borderless toggle) |
-| Hotkeys | keyboard (global F9 toggle) |
+| Hotkeys | keyboard (global F9 hold-to-record, configurable) |
 | Tray | QSystemTrayIcon |
 | Build | PyInstaller → single `vox.exe` |
 
@@ -50,14 +52,18 @@ python -m PyInstaller vox.spec --clean
 
 | Category | Examples |
 |----------|----------|
+| Notes | "note [text]", "take a note [text]" |
+| Reminders | "remind me to X at 3pm", "remind me to X" (no time = tomorrow 9am) |
+| Timers | "set timer 5 minutes", "timer for half an hour", "a couple minutes" |
+| Recurring | "every day at 9am check email", "every 30 minutes stretch" |
+| Search | "search for X", "what is X", "how to X" |
 | Spotify | "play/pause", "next song", "volume up" |
+| System | "mute", "screenshot", "volume down" |
 | Layouts | "coding layout", "gaming layout" |
 | Workflows | "run dev setup", "start X workflow" |
 | Launchers | any assigned voice phrase |
-| Search | "search for X", "what is X", "how to X" |
-| Notes | "note [text]", "take a note [text]" |
-| Timers | "set timer 5 minutes", "remind me to X at 3pm" |
-| Recurring | "every day at 9am check email", "every 30 minutes stretch" |
+
+Commands are matched in priority order: NLP intents (notes, reminders, timers) are parsed first, then search, exact phrases, fuzzy token matching, and finally launcher phrases.
 
 ### Workflows
 
@@ -74,7 +80,7 @@ Save current window positions and restore them by name or voice. Layouts are pur
 ## Architecture
 
 ```
-main.py                 # Entry point
+main.py                 # Entry point (single-instance guard)
 core/
   config.py             # ~/.vox/ config singleton (JSON)
   hotkeys.py            # Global hotkey registration
@@ -85,11 +91,12 @@ modules/
   clipboard/            # Clipboard monitoring + history
   reminders/            # Timers, alarms, recurring reminders
   workflows/            # Batch launch + layout linking
+sounds/                 # Alert sounds (reminder notifications)
 ui/
   app.py                # Main window (sidebar nav, signals, tray)
   widget.py             # Floating always-on-top widget
   styles.py             # Dark theme colors, QSS, font helper
-  pages/                # Home, Windows, Launchers, Clipboard, Reminders, Voice, Settings
+  pages/                # Home, Windows, Launchers, Clipboard, Reminders, Help, Settings
 ```
 
 ## Requirements
@@ -97,3 +104,7 @@ ui/
 - Windows 10/11
 - Python 3.10+
 - Microphone (for voice commands)
+
+## License
+
+[AGPL-3.0](LICENSE) — Copyright 2026 Lucas Froeschner

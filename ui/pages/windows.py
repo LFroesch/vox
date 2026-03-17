@@ -346,14 +346,8 @@ class WindowsPage(QWidget):
     def _delete_selected_layout(self):
         name = self._layout_dropdown.currentText()
         if name and name != "(none)":
-            reply = QMessageBox.question(
-                self, "Delete Layout",
-                f"Delete layout '{name}'?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self.app.delete_layout(name)
-                self._refresh_layout_dropdown()
+            self.app.delete_layout(name)
+            self._refresh_layout_dropdown()
 
     def _duplicate_selected_layout(self):
         name = self._layout_dropdown.currentText()
