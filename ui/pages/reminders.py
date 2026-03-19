@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QScrollArea, QComboBox, QCheckBox,
-    QDateEdit, QTimeEdit, QDialog, QDialogButtonBox,
+    QDateEdit, QTimeEdit, QDialog,
     QSizePolicy, QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QTimer, QDate, QTime, QEvent
@@ -483,9 +483,16 @@ class RemindersPage(QWidget):
         return w
 
     def _date_quick_btns(self, date_widget, time_widget=None):
+        ss = (
+            f"QPushButton {{ color: {COLORS['text_dim']}; background: {COLORS['surface_light']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 12px; padding: 2px 8px; }}"
+            f"QPushButton:hover {{ color: {COLORS['text']}; border-color: {COLORS['text_dim']}; }}"
+        )
         today = QPushButton("Today")
-        today.setFixedSize(72, 24)
+        today.setFixedSize(56, 24)
         today.setFont(font(10))
+        today.setStyleSheet(ss)
+        today.setCursor(Qt.CursorShape.PointingHandCursor)
         today.clicked.connect(lambda: date_widget.setDate(QDate.currentDate()))
 
         def _set_tomorrow(checked=False):
@@ -494,10 +501,31 @@ class RemindersPage(QWidget):
                 time_widget.setTime(QTime(9, 0))
 
         tmrw = QPushButton("+1d")
-        tmrw.setFixedSize(48, 24)
+        tmrw.setFixedSize(40, 24)
         tmrw.setFont(font(10))
+        tmrw.setStyleSheet(ss)
+        tmrw.setCursor(Qt.CursorShape.PointingHandCursor)
         tmrw.clicked.connect(_set_tomorrow)
-        return today, tmrw
+
+        btns = [today, tmrw]
+
+        if time_widget:
+            def _add_hour(checked=False):
+                t = time_widget.time()
+                new_h = (t.hour() + 1) % 24
+                time_widget.setTime(QTime(new_h, t.minute()))
+                if new_h == 0:  # wrapped to next day
+                    date_widget.setDate(date_widget.date().addDays(1))
+
+            hr_btn = QPushButton("+1h")
+            hr_btn.setFixedSize(40, 24)
+            hr_btn.setFont(font(10))
+            hr_btn.setStyleSheet(ss)
+            hr_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            hr_btn.clicked.connect(_add_hour)
+            btns.append(hr_btn)
+
+        return btns
 
     # ── Add from form ─────────────────────────────────────────────────
 
@@ -711,12 +739,6 @@ class RemindersPage(QWidget):
                 recur_time_edit.setFixedHeight(28)
                 add_field("Time", recur_time_edit)
 
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.setStyleSheet(f"color: {COLORS['text']};")
-        btns.rejected.connect(dlg.reject)
-
         def do_save():
             updates = {"label": lbl_edit.text().strip() or entry.label}
 
@@ -778,8 +800,21 @@ class RemindersPage(QWidget):
             self.app.push_reminders_to_ui()
             dlg.accept()
 
-        btns.accepted.connect(do_save)
-        layout.addWidget(btns)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFixedSize(72, 32)
+        cancel_btn.setFont(font(11))
+        cancel_btn.clicked.connect(dlg.reject)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch()
+        save_btn = QPushButton("Save")
+        save_btn.setFixedSize(72, 32)
+        save_btn.setFont(font(11))
+        save_btn.setProperty("accent", True)
+        save_btn.clicked.connect(do_save)
+        btn_row.addWidget(save_btn)
+        layout.addLayout(btn_row)
         dlg.exec()
 
     # ── List rendering ────────────────────────────────────────────────
@@ -1021,29 +1056,27 @@ class RemindersPage(QWidget):
         arrow.setFixedWidth(12)
         row.addWidget(arrow)
 
-        # Type badge (dimmed, matches fired rows)
-        badge = _type_badge(entry.type, dimmed=True)
-        row.addWidget(badge)
+        # Recurring icon (distinct from one-shot type badges)
+        dot = QLabel("🔁")
+        dot.setFont(font(12))
+        dot.setFixedWidth(22)
+        row.addWidget(dot)
 
         name = _ElidedLabel(entry.label)
         name.setFont(font(12))
         name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         row.addWidget(name, stretch=1)
 
-        # Recurring schedule in warning color (same position as fired_lbl in _fired_row)
+        # Recurring schedule in warning color
         sched = QLabel(_recur_desc(entry.recur))
         sched.setFont(font(10))
         sched.setStyleSheet(f"color: {COLORS['warning']};")
         row.addWidget(sched)
 
-        # Spacer to match snooze button width in _fired_row
-        spacer = QWidget()
-        spacer.setFixedSize(40, 24)
-        row.addWidget(spacer)
-
+        confirm_btn = _emoji_btn("✅", lambda _, eid=entry.id: self._dismiss(eid))
+        del_btn = _emoji_btn("🗑️", lambda _, eid=entry.id: self._cancel(eid), danger=True)
         edit_btn = _emoji_btn("✏️", lambda _, e=entry: self._open_edit_dialog(e))
-        dismiss_btn = _emoji_btn("🔄️", lambda _, eid=entry.id: self._dismiss(eid), danger=True)
-        for btn in (edit_btn, dismiss_btn):
+        for btn in (confirm_btn, del_btn, edit_btn):
             row.addWidget(btn)
             header.add_action(btn)
 

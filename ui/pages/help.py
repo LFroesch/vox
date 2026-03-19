@@ -54,7 +54,7 @@ class HelpPage(QWidget):
 
         tips = [
             (self.app.config.get('hotkeys', 'voice_record', default='F9').upper(),
-             "Hold to record a voice command, release to execute"),
+             "Press to record a voice command, press again to stop recording, or let it time out"),
             ("Widget", "Always-on-top floating panel — mic button, quick actions, reminder countdowns"),
             ("Tray", "Minimize to system tray. Double-click tray icon to restore"),
             ("Favorites", "Click the heart on any launcher, layout, or workflow to pin it to Quick Actions on the Home page and widget"),

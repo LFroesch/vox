@@ -45,6 +45,7 @@ class VoxApp(QMainWindow):
     voice_error_signal = pyqtSignal(str)
     clipboard_signal = pyqtSignal(object)
     reminder_fire_signal = pyqtSignal(object)
+    reminder_batch_signal = pyqtSignal(object)
     workflow_done_signal = pyqtSignal(str)
     restore_signal = pyqtSignal()
 
@@ -108,6 +109,7 @@ class VoxApp(QMainWindow):
         self.voice_error_signal.connect(self._handle_voice_error)
         self.clipboard_signal.connect(self._handle_clipboard_entry)
         self.reminder_fire_signal.connect(self._handle_reminder_fire)
+        self.reminder_batch_signal.connect(self._handle_reminder_batch)
         self.workflow_done_signal.connect(self._on_workflow_complete)
         self.restore_signal.connect(self._do_restore)
 
@@ -118,6 +120,7 @@ class VoxApp(QMainWindow):
         self.voice.on_recognition_failed = lambda msg="Didn't catch that": self.tts.speak(msg)
         self.clipboard_mgr.on_new_entry = lambda entry: self.clipboard_signal.emit(entry)
         self.reminders.on_fire = lambda entry: self.reminder_fire_signal.emit(entry)
+        self.reminders.on_batch_fire = lambda entries: self.reminder_batch_signal.emit(entries)
 
         # Build UI
         self._create_ui()
@@ -138,8 +141,9 @@ class VoxApp(QMainWindow):
             self.record_btn.setEnabled(False)
             self.set_status("Mic unavailable — check audio input", COLORS["error"])
 
-        # Tray icon
+        # Persistent tray icon — always available for notifications
         self._tray_icon = None
+        self._create_tray_icon()
 
         # Taskbar badge overlay
         self._init_taskbar_badge()
@@ -826,6 +830,22 @@ class VoxApp(QMainWindow):
         except Exception:
             pass
 
+    def _handle_reminder_batch(self, entries):
+        """Batch notification for reminders that fired while asleep/closed."""
+        try:
+            n = len(entries)
+            labels = ", ".join(e.label for e in entries[:5])
+            if n > 5:
+                labels += f", +{n - 5} more"
+            msg = f"{n} reminder{'s' if n != 1 else ''} fired while away: {labels}"
+            if self.config.get('notifications', 'sound', default=True):
+                self.reminders._play_audio()
+            if self.config.get('notifications', 'tray', default=True):
+                self._show_win_notification("vox", msg)
+            self.push_reminders_to_ui()
+        except Exception:
+            pass
+
     def _on_layout_loaded(self, name: str, result: dict):
         msg = f"Layout '{name}': {result['applied']}/{result['total']}"
         color = COLORS["success"] if result['applied'] > 0 else COLORS["warning"]
@@ -1032,9 +1052,6 @@ class VoxApp(QMainWindow):
             self._restore_from_tray()
 
     def _restore_from_tray(self):
-        if self._tray_icon:
-            self._tray_icon.hide()
-            self._tray_icon = None
         self._do_restore()
 
     def _do_restore(self):
@@ -1045,9 +1062,6 @@ class VoxApp(QMainWindow):
             self.widget.show()
 
     def _tray_quit(self):
-        if self._tray_icon:
-            self._tray_icon.hide()
-            self._tray_icon = None
         self._full_quit()
 
     def _full_quit(self):

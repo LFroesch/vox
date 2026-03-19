@@ -32,6 +32,7 @@ class FloatingWidget(QWidget):
         self._launchers_expanded = False
         self._workflows_expanded = False
         self._drag_pos = None
+        self._first_show = True
 
         # Window flags
         self.setWindowFlags(
@@ -511,6 +512,17 @@ class FloatingWidget(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        cfg = get_config()
+        sx = cfg.get("ui", "widget_x")
+        sy = cfg.get("ui", "widget_y")
+        if sx is not None and sy is not None:
+            self.move(sx, sy)
+        # On first show, re-apply position after WM settles (boot timing)
+        if self._first_show:
+            self._first_show = False
+            QTimer.singleShot(500, self._reapply_position)
+
+    def _reapply_position(self):
         cfg = get_config()
         sx = cfg.get("ui", "widget_x")
         sy = cfg.get("ui", "widget_y")

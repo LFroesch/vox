@@ -14,7 +14,7 @@ class HotkeyManager:
             if hotkey in self.registered_hotkeys:
                 self.unregister(hotkey)
 
-            keyboard.add_hotkey(hotkey, callback)
+            keyboard.add_hotkey(hotkey, callback, suppress=True, trigger_on_release=True)
             self.registered_hotkeys[hotkey] = callback
             print(f"Registered hotkey: {hotkey.upper()} - {description}")
             return True

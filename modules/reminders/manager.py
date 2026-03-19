@@ -34,8 +34,10 @@ class ReminderManager:
         self._entries: List[ReminderEntry] = []
         self._lock = threading.Lock()
         self.on_fire: Optional[Callable[[ReminderEntry], None]] = None
+        self.on_batch_fire: Optional[Callable[[List[ReminderEntry]], None]] = None
         self._load()
         self._started = False
+        self._last_tick: float = time.time()
 
     def start(self):
         """Start the reminder check loop. Call after UI is fully initialized."""
@@ -43,6 +45,12 @@ class ReminderManager:
             self._started = True
             self._thread = threading.Thread(target=self._loop, daemon=True)
             self._thread.start()
+            # Notify about reminders that fired while app was closed
+            missed = getattr(self, '_missed', [])
+            if missed and self.on_batch_fire:
+                self.on_batch_fire(list(missed))
+                self._save()
+            self._missed = []
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -604,6 +612,9 @@ class ReminderManager:
             try:
                 time.sleep(0.5)
                 now = time.time()
+                elapsed = now - self._last_tick
+                self._last_tick = now
+                was_asleep = elapsed > 10  # machine slept if tick gap >> 0.5s
                 fired = []
                 with self._lock:
                     for entry in self._entries:
@@ -616,8 +627,11 @@ class ReminderManager:
                             fired.append(entry)
                 if fired:
                     self._save()
-                    for entry in fired:
-                        self._fire(entry)
+                    if was_asleep and len(fired) > 0 and self.on_batch_fire:
+                        self.on_batch_fire(fired)
+                    else:
+                        for entry in fired:
+                            self._fire(entry)
             except Exception:
                 pass
 
@@ -670,6 +684,7 @@ class ReminderManager:
                     e.setdefault("triggered", False)
                     entries.append(ReminderEntry(**e))
                 result = []
+                self._missed: List[ReminderEntry] = []
                 for e in entries:
                     if not e.active:
                         continue
@@ -678,8 +693,10 @@ class ReminderManager:
                         continue
                     if e.recur and e.fire_at <= now:
                         e.fire_at = self._next_fire(e.recur)
-                    if e.fire_at > now:
-                        result.append(e)
+                    if not e.recur and e.fire_at <= now:
+                        e.fired = True
+                        self._missed.append(e)
+                    result.append(e)
                 self._entries = result
             except Exception:
                 self._entries = []

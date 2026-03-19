@@ -154,7 +154,18 @@ class WorkflowManager:
                 time.sleep(0.3)
 
             if wf.linked_layout and wf.linked_layout in self.layout_manager.layouts:
+                # Poll for expected windows instead of fixed sleep —
+                # apps on cold boot can take much longer to open
+                layout_data = self.layout_manager.layouts[wf.linked_layout]
+                expected = len(layout_data)
+                deadline = time.time() + max(wf.layout_delay, 5) + 15
+                # Wait at least layout_delay before first check
                 time.sleep(wf.layout_delay)
+                while time.time() < deadline:
+                    current = self.layout_manager.wm.get_all_windows_with_minimized()
+                    if len(current) >= expected:
+                        break
+                    time.sleep(1)
                 self.layout_manager.load_layout(wf.linked_layout)
 
             if on_complete:
