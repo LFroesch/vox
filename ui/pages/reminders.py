@@ -3,10 +3,12 @@
 import time as _time
 from datetime import datetime, timedelta
 
+import re as _re
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QScrollArea, QComboBox, QCheckBox,
-    QDateEdit, QTimeEdit, QDialog,
+    QCalendarWidget, QDialog,
     QSizePolicy, QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QTimer, QDate, QTime, QEvent
@@ -65,6 +67,157 @@ class _HoverRow(QWidget):
             if eff:
                 eff.setOpacity(0.0)
         super().leaveEvent(event)
+
+
+class _TimeInput(QLineEdit):
+    """Time input that works like a normal text field — select all, retype, done."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._time = QTime(9, 0)
+        self.setFixedHeight(28)
+        self._update_display()
+        self.editingFinished.connect(self._parse)
+
+    def time(self):
+        return self._time
+
+    def setTime(self, qtime):
+        self._time = qtime
+        self._update_display()
+
+    def setDisplayFormat(self, _):
+        pass
+
+    def _update_display(self):
+        self.setText(self._time.toString("h:mm AP"))
+
+    def _parse(self):
+        text = self.text().strip().lower().replace('.', '')
+        if not text:
+            self._update_display()
+            return
+        hour = minute = ampm = None
+        # "3:30 pm", "3:30pm", "15:30"
+        m = _re.match(r'^(\d{1,2}):(\d{2})\s*(am|pm)?$', text)
+        if m:
+            hour, minute, ampm = int(m.group(1)), int(m.group(2)), m.group(3)
+        # "3pm", "3 pm"
+        if hour is None:
+            m = _re.match(r'^(\d{1,2})\s*(am|pm)$', text)
+            if m:
+                hour, minute, ampm = int(m.group(1)), 0, m.group(2)
+        # "330pm", "1530"
+        if hour is None:
+            m = _re.match(r'^(\d{3,4})\s*(am|pm)?$', text)
+            if m:
+                raw = m.group(1)
+                hour, minute = int(raw[:-2]), int(raw[-2:])
+                ampm = m.group(2)
+        if hour is not None:
+            if ampm == 'pm' and hour != 12:
+                hour += 12
+            elif ampm == 'am' and hour == 12:
+                hour = 0
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                self._time = QTime(hour, minute)
+        self._update_display()
+
+
+class _DateInput(QWidget):
+    """Date input: editable text field + calendar popup button."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._qdate = QDate.currentDate()
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self._edit = QLineEdit()
+        self._edit.setFixedHeight(28)
+        self._edit.setMinimumWidth(110)
+        self._edit.editingFinished.connect(self._parse)
+        layout.addWidget(self._edit)
+
+        cal_btn = QPushButton("📅")
+        cal_btn.setFixedSize(28, 28)
+        cal_btn.setStyleSheet(
+            f"QPushButton {{ background: {COLORS['surface_light']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 3px; padding: 0; }}"
+            f"QPushButton:hover {{ border-color: {COLORS['text_dim']}; }}"
+        )
+        cal_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cal_btn.clicked.connect(self._show_calendar)
+        layout.addWidget(cal_btn)
+
+        self._update_display()
+
+    def date(self):
+        return self._qdate
+
+    def setDate(self, qdate):
+        self._qdate = qdate
+        self._update_display()
+
+    def setStyleSheet(self, ss):
+        self._edit.setStyleSheet(ss)
+
+    def setFixedHeight(self, h):
+        pass
+
+    def setCalendarPopup(self, _):
+        pass
+
+    def setDisplayFormat(self, _):
+        pass
+
+    def _update_display(self):
+        self._edit.setText(self._qdate.toString("MMM d, yyyy"))
+
+    def _parse(self):
+        text = self._edit.text().strip()
+        if not text:
+            self._update_display()
+            return
+        today = QDate.currentDate()
+        # Formats with year
+        for fmt in ["%b %d, %Y", "%b %d %Y", "%B %d, %Y", "%B %d %Y",
+                    "%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"]:
+            try:
+                dt = datetime.strptime(text, fmt)
+                self._qdate = QDate(dt.year, dt.month, dt.day)
+                self._update_display()
+                return
+            except ValueError:
+                continue
+        # Without year — assume current or next year if past
+        for fmt in ["%b %d", "%B %d", "%m/%d"]:
+            try:
+                dt = datetime.strptime(text, fmt)
+                d = QDate(today.year(), dt.month, dt.day)
+                if d < today:
+                    d = d.addYears(1)
+                self._qdate = d
+                self._update_display()
+                return
+            except ValueError:
+                continue
+        # Couldn't parse — revert to last valid date
+        self._update_display()
+
+    def _show_calendar(self, checked=False):
+        popup = QWidget(self, Qt.WindowType.Popup)
+        popup.setStyleSheet(f"QWidget {{ background: {COLORS['bg']}; }}")
+        cal = QCalendarWidget()
+        cal.setSelectedDate(self._qdate)
+        cal.clicked.connect(lambda d: (self.setDate(d), popup.close()))
+        vl = QVBoxLayout(popup)
+        vl.setContentsMargins(0, 0, 0, 0)
+        vl.addWidget(cal)
+        popup.adjustSize()
+        popup.move(self.mapToGlobal(self.rect().bottomLeft()))
+        popup.show()
 
 
 class _ExpandableRow(QWidget):
@@ -436,9 +589,9 @@ class RemindersPage(QWidget):
     def _build_recur_interval_fields(self):
         self._clear_recur_dyn()
         self._recur_dyn_layout.addWidget(_field_label("Every"))
-        self._recur_ih = QLineEdit(); self._recur_ih.setPlaceholderText("0h"); self._recur_ih.setFixedWidth(48); self._recur_ih.setFixedHeight(28)
-        self._recur_im = QLineEdit(); self._recur_im.setPlaceholderText("30m"); self._recur_im.setFixedWidth(48); self._recur_im.setFixedHeight(28)
-        self._recur_is = QLineEdit(); self._recur_is.setPlaceholderText("0s"); self._recur_is.setFixedWidth(48); self._recur_is.setFixedHeight(28)
+        self._recur_ih = QLineEdit(); self._recur_ih.setPlaceholderText("0h"); self._recur_ih.setFixedWidth(56); self._recur_ih.setFixedHeight(28)
+        self._recur_im = QLineEdit(); self._recur_im.setPlaceholderText("30m"); self._recur_im.setFixedWidth(56); self._recur_im.setFixedHeight(28)
+        self._recur_is = QLineEdit(); self._recur_is.setPlaceholderText("0s"); self._recur_is.setFixedWidth(56); self._recur_is.setFixedHeight(28)
         for w in (self._recur_ih, self._recur_im, self._recur_is):
             self._recur_dyn_layout.addWidget(w)
         self._recur_dyn_layout.addStretch()
@@ -467,19 +620,14 @@ class RemindersPage(QWidget):
     # ── Pickers / helpers ─────────────────────────────────────────────
 
     def _date_picker(self):
-        w = QDateEdit()
-        w.setCalendarPopup(True)
+        w = _DateInput()
         w.setDate(QDate.currentDate())
-        w.setFixedHeight(28)
-        w.setDisplayFormat("MMM d, yyyy")
         return w
 
     def _time_picker(self):
-        w = QTimeEdit()
+        w = _TimeInput()
         now = QTime.currentTime()
         w.setTime(QTime(now.hour() + 1 if now.hour() < 23 else 0, 0))
-        w.setFixedHeight(28)
-        w.setDisplayFormat("hh:mm AP")
         return w
 
     def _date_quick_btns(self, date_widget, time_widget=None):
@@ -501,7 +649,7 @@ class RemindersPage(QWidget):
                 time_widget.setTime(QTime(9, 0))
 
         tmrw = QPushButton("+1d")
-        tmrw.setFixedSize(40, 24)
+        tmrw.setFixedSize(46, 24)
         tmrw.setFont(font(10))
         tmrw.setStyleSheet(ss)
         tmrw.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -518,7 +666,7 @@ class RemindersPage(QWidget):
                     date_widget.setDate(date_widget.date().addDays(1))
 
             hr_btn = QPushButton("+1h")
-            hr_btn.setFixedSize(40, 24)
+            hr_btn.setFixedSize(46, 24)
             hr_btn.setFont(font(10))
             hr_btn.setStyleSheet(ss)
             hr_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -650,16 +798,11 @@ class RemindersPage(QWidget):
 
         elif entry.type == "reminder" and not entry.recur:
             dt = datetime.fromtimestamp(entry.fire_at)
-            date_edit = QDateEdit()
-            date_edit.setCalendarPopup(True)
+            date_edit = _DateInput()
             date_edit.setDate(QDate(dt.year, dt.month, dt.day))
-            date_edit.setDisplayFormat("MMM d, yyyy")
-            date_edit.setFixedHeight(28)
 
-            time_edit = QTimeEdit()
+            time_edit = _TimeInput()
             time_edit.setTime(QTime(dt.hour, dt.minute))
-            time_edit.setDisplayFormat("hh:mm AP")
-            time_edit.setFixedHeight(28)
 
             date_row = QHBoxLayout()
             date_row.setSpacing(8)
@@ -690,9 +833,9 @@ class RemindersPage(QWidget):
                 int_row = QHBoxLayout()
                 int_row.setSpacing(8)
                 int_row.addWidget(_field_label("Every"))
-                recur_interval_h = QLineEdit(str(rh)); recur_interval_h.setFixedWidth(48); recur_interval_h.setFixedHeight(28); recur_interval_h.setPlaceholderText("0h")
-                recur_interval_m = QLineEdit(str(rm)); recur_interval_m.setFixedWidth(48); recur_interval_m.setFixedHeight(28); recur_interval_m.setPlaceholderText("0m")
-                recur_interval_s = QLineEdit(str(rs)); recur_interval_s.setFixedWidth(48); recur_interval_s.setFixedHeight(28); recur_interval_s.setPlaceholderText("0s")
+                recur_interval_h = QLineEdit(str(rh)); recur_interval_h.setFixedWidth(56); recur_interval_h.setFixedHeight(28); recur_interval_h.setPlaceholderText("0h")
+                recur_interval_m = QLineEdit(str(rm)); recur_interval_m.setFixedWidth(56); recur_interval_m.setFixedHeight(28); recur_interval_m.setPlaceholderText("0m")
+                recur_interval_s = QLineEdit(str(rs)); recur_interval_s.setFixedWidth(56); recur_interval_s.setFixedHeight(28); recur_interval_s.setPlaceholderText("0s")
                 for w in (recur_interval_h, recur_interval_m, recur_interval_s):
                     int_row.addWidget(w)
                 int_row.addStretch()
@@ -733,10 +876,8 @@ class RemindersPage(QWidget):
                 layout.addWidget(days_w)
 
                 h_m = entry.recur.get("time", "09:00").split(":")
-                recur_time_edit = QTimeEdit()
+                recur_time_edit = _TimeInput()
                 recur_time_edit.setTime(QTime(int(h_m[0]), int(h_m[1])))
-                recur_time_edit.setDisplayFormat("hh:mm AP")
-                recur_time_edit.setFixedHeight(28)
                 add_field("Time", recur_time_edit)
 
         def do_save():
@@ -1084,7 +1225,7 @@ class RemindersPage(QWidget):
         exp._arrow = arrow
         exp.set_elided_label(name)
 
-        exp.add_detail_line(f"Next: {_friendly_date(entry.fire_at)}")
+        exp.add_detail_line(_friendly_date(entry.fire_at, prefix="Next"))
 
         return exp
 
@@ -1289,7 +1430,11 @@ def _friendly_date(timestamp, prefix=""):
 
     result = f"{day_part} {time_str}"
     if prefix:
-        result = f"{prefix} {result}"
+        # "today"/"tomorrow" read better lowercase after a prefix
+        if day_part in ("Today", "Tomorrow", "Yesterday"):
+            result = f"{prefix}: {day_part.lower()} {time_str}"
+        else:
+            result = f"{prefix}: {result}"
     return result
 
 

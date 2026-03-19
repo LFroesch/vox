@@ -289,6 +289,7 @@ def build_stylesheet() -> str:
         background: {c['hover']};
         color: {c['text']};
         border-left: 3px solid {c['accent']};
+        padding-left: 11px;
     }}
     QListWidget#sidebar::item:hover:!selected {{
         background: {c['surface_light']};
