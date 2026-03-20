@@ -53,7 +53,7 @@ class VoxApp(QMainWindow):
         super().__init__()
         self._q_app = q_app
         self.setWindowTitle("vox")
-        self.setFixedSize(900, 650)
+        self.setFixedSize(950, 650)
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowMaximizeButtonHint
         )
@@ -331,7 +331,7 @@ class VoxApp(QMainWindow):
         # Sidebar
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("sidebar")
-        self.sidebar.setFixedWidth(150)
+        self.sidebar.setFixedWidth(166)
         self.sidebar.setIconSize(QSize(0, 0))
 
         pages = [
@@ -345,7 +345,7 @@ class VoxApp(QMainWindow):
         ]
         for name, icon in pages:
             item = QListWidgetItem(f"{icon}  {name}")
-            item.setSizeHint(QSize(150, 44))
+            item.setSizeHint(QSize(166, 44))
             self.sidebar.addItem(item)
 
         self._reminders_sidebar_item = self.sidebar.item(4)  # "Reminders" row
@@ -454,8 +454,12 @@ class VoxApp(QMainWindow):
         self.widget.update_reminders(active)
         # Sidebar badge count (expired = fired one-shots + triggered recurring)
         count = len([e for e in active if e.fired or (e.recur and e.triggered)])
-        badge = f"  ({count})" if count > 0 else ""
-        self._reminders_sidebar_item.setText(f"⏰  Reminders{badge}")
+        if count > 0:
+            self._reminders_sidebar_item.setText(f"⏰  Reminders ({count})")
+            self._reminders_sidebar_item.setToolTip(f"{count} pending reminder{'s' if count != 1 else ''}")
+        else:
+            self._reminders_sidebar_item.setText("⏰  Reminders")
+            self._reminders_sidebar_item.setToolTip("")
         self._update_taskbar_badge(count)
 
     def _dismiss_reminder_from_widget(self, eid):
@@ -749,7 +753,7 @@ class VoxApp(QMainWindow):
             self._save_note(note_text)
             result = {"executed": True, "success": True, "type": "note"}
             response_to_speak = "Note saved"
-        elif reminder_response is not None:
+        elif reminder_response is not False:  # False = not a reminder; None = no TTS; str = TTS
             result = {"executed": True, "success": True, "type": "reminder"}
             response_to_speak = reminder_response
         else:
@@ -894,7 +898,10 @@ class VoxApp(QMainWindow):
         from modules.reminders.manager import ReminderManager as _RM
         parsed = _RM.parse_voice_command(text)
         if parsed is None:
-            return None
+            return False  # not a reminder command
+
+        confirm = self.config.get('ui', 'reminder_confirmation_tts', default=True)
+
         if parsed[0] == 'timer':
             _, label, seconds = parsed
             self.reminders.create_timer(label, seconds)
@@ -903,11 +910,15 @@ class VoxApp(QMainWindow):
             m, s = divmod(seconds, 60)
             h, m = divmod(m, 60)
             if h:
-                return f"Timer set for {h}h {m}m"
+                dur = f"{h} hour{'s' if h != 1 else ''}" + (f" {m} minutes" if m else "")
             elif m:
-                return f"Timer set for {m} minute{'s' if m != 1 else ''}"
+                dur = f"{m} minute{'s' if m != 1 else ''}"
             else:
-                return f"Timer set for {s} second{'s' if s != 1 else ''}"
+                dur = f"{s} second{'s' if s != 1 else ''}"
+            if confirm:
+                task = f" to: {label}" if label and label.lower() != "timer" else ""
+                return f"Setting timer for {dur}{task}"
+            return "Setting timer"
         elif parsed[0] == 'reminder':
             _, label, message, time_str = parsed
             entry = self.reminders.create_reminder(label, time_str, message=message)
@@ -915,8 +926,11 @@ class VoxApp(QMainWindow):
                 return "Couldn't parse that time"
             self.page_reminders.refresh_list()
             self.push_reminders_to_ui()
-            fire_dt = datetime.fromtimestamp(entry.fire_at)
-            return f"Reminder set for {fire_dt.strftime('%I:%M %p').lstrip('0')}"
+            if confirm:
+                when = self._friendly_fire_time(entry.fire_at)
+                task = f" to: {label}" if label and label.lower() != "reminder" else ""
+                return f"Setting reminder for {when}{task}"
+            return "Setting reminder"
         elif parsed[0] == 'recurring':
             _, label, recur = parsed
             # Resolve time_str → HH:MM for non-interval types
@@ -930,9 +944,28 @@ class VoxApp(QMainWindow):
             self.reminders.create_recurring(label, label, recur)
             self.page_reminders.refresh_list()
             self.push_reminders_to_ui()
-            from ui.pages.reminders import _recur_desc
-            return f"Recurring reminder set: {_recur_desc(recur)}"
-        return None
+            if confirm:
+                from ui.pages.reminders import _recur_desc
+                task = f" to: {label}" if label else ""
+                return f"Setting recurring reminder, {_recur_desc(recur)}{task}"
+            return "Setting reminder"
+        return False  # unknown parsed type
+
+    @staticmethod
+    def _friendly_fire_time(fire_ts: float) -> str:
+        """Format a fire timestamp as a human-friendly string like '3pm tomorrow'."""
+        now = datetime.now()
+        fire = datetime.fromtimestamp(fire_ts)
+        time_str = fire.strftime('%I:%M %p').lstrip('0').replace(':00 ', ' ')
+        delta_days = (fire.date() - now.date()).days
+        if delta_days == 0:
+            return time_str
+        elif delta_days == 1:
+            return f"{time_str} tomorrow"
+        elif delta_days < 7:
+            return f"{fire.strftime('%A')} at {time_str}"
+        else:
+            return f"{fire.strftime('%B %-d')} at {time_str}"
 
     # ── Notification ──
 

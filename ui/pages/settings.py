@@ -184,6 +184,23 @@ class SettingsPage(QWidget):
         right.addWidget(self._voice_resp_cb)
         layout.addWidget(row)
 
+        # Reminder Confirmation TTS
+        row, right = self._setting_row("Reminder Confirmation")
+        hint = QLabel("full details vs brief")
+        hint.setFont(font(11))
+        hint.setStyleSheet(f"color: {COLORS['text_muted']};")
+        self._reminder_confirm_cb = QCheckBox()
+        self._reminder_confirm_cb.setChecked(
+            self.app.config.get('ui', 'reminder_confirmation_tts', default=True)
+        )
+        self._reminder_confirm_cb.stateChanged.connect(
+            lambda: self.app.config.set('ui', 'reminder_confirmation_tts',
+                                        value=self._reminder_confirm_cb.isChecked())
+        )
+        right.addWidget(hint)
+        right.addWidget(self._reminder_confirm_cb)
+        layout.addWidget(row)
+
         # ── NOTIFICATIONS ──
         layout.addWidget(self._section_label("NOTIFICATIONS"))
 
@@ -364,23 +381,24 @@ class SettingsPage(QWidget):
         editor = self.app.config.get('general', 'editor', default='system')
         return {"vscode": "code", "cursor": "cursor", "notepad": "notepad"}.get(editor)
 
-    def _open_config_file(self):
-        config_file = str(self.app.config.config_file)
+    def _open_path(self, path: str, is_folder: bool = False):
         cmd = self._get_editor_cmd()
-        if cmd:
-            subprocess.Popen([cmd, config_file])
-        elif sys.platform == "win32":
-            import os
-            os.startfile(config_file)
-        else:
-            subprocess.run(["xdg-open", config_file])
+        try:
+            if cmd:
+                # shell=True needed on Windows for .cmd shims (code, cursor)
+                subprocess.Popen(f'{cmd} "{path}"', shell=True)
+            elif sys.platform == "win32":
+                if is_folder:
+                    subprocess.Popen(["explorer", path])
+                else:
+                    os.startfile(path)
+            else:
+                subprocess.run(["xdg-open", path])
+        except Exception as e:
+            print(f"Failed to open {path}: {e}")
+
+    def _open_config_file(self):
+        self._open_path(str(self.app.config.config_file))
 
     def _open_config_folder(self):
-        config_dir = str(self.app.config.config_dir)
-        cmd = self._get_editor_cmd()
-        if cmd:
-            subprocess.Popen([cmd, config_dir])
-        elif sys.platform == "win32":
-            subprocess.run(["explorer", config_dir])
-        else:
-            subprocess.run(["xdg-open", config_dir])
+        self._open_path(str(self.app.config.config_dir), is_folder=True)

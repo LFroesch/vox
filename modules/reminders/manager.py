@@ -432,8 +432,15 @@ class ReminderManager:
             'morning': (9, 0), 'afternoon': (14, 0),
             'evening': (18, 0), 'tonight': (20, 0), 'night': (20, 0),
         }
-        if s in named_hm:
-            return named_hm[s]
+        # Strip named time if mixed with clock time (e.g. "noon 12:00")
+        fallback_hm = None
+        for name, hm_val in named_hm.items():
+            if re.search(rf'\b{name}\b', s):
+                fallback_hm = hm_val
+                s = re.sub(rf'\b{name}\b', '', s).strip()
+                break
+        if fallback_hm and not s:
+            return fallback_hm
         s = re.sub(r'\s*(am|pm)', r' \1', s).strip().upper()
         for fmt in ["%I:%M %p", "%I:%M%p", "%I %p", "%I%p"]:
             try:
@@ -453,6 +460,8 @@ class ReminderManager:
                 return ((t.hour % 12) + 12, t.minute)  # PM heuristic for bare numbers
             except ValueError:
                 continue
+        if fallback_hm:
+            return fallback_hm
         return None
 
     def _parse_time(self, time_str: str) -> Optional[float]:
@@ -565,12 +574,22 @@ class ReminderManager:
             'morning': (9, 0), 'afternoon': (14, 0),
             'evening': (18, 0), 'tonight': (20, 0),
         }
-        for name, (h, mn) in named.items():
-            if s == name or s == f"the {name}" or s == f"in the {name}":
-                target = now.replace(hour=h, minute=mn, second=0, microsecond=0)
-                return _ts(target)
+        named_hm = None
+        for name, hm_val in named.items():
+            if re.search(rf'\b{name}\b', s):
+                named_hm = hm_val
+                s = re.sub(rf'\b(?:the\s+|in\s+the\s+)?{name}\b', '', s).strip()
+                s = re.sub(r'\s+', ' ', s).strip()
+                break
+        # If only a named time was present (nothing left), use it directly
+        if named_hm and not s:
+            h, mn = named_hm
+            target = now.replace(hour=h, minute=mn, second=0, microsecond=0)
+            return _ts(target)
 
         # ── Clock time with explicit AM/PM ───────────────────────────────────
+        # Strip "at" prefix left over after named time removal (e.g. "at 12:00")
+        s = re.sub(r'^at\s+', '', s).strip()
         s = re.sub(r'\s*(am|pm)', r' \1', s).strip().upper()
         for fmt in ["%I:%M %p", "%I:%M%p", "%I %p", "%I%p"]:
             try:
@@ -604,6 +623,12 @@ class ReminderManager:
                 return target.timestamp()
             except ValueError:
                 continue
+
+        # Fallback: if a named time was stripped but clock parsing failed, use it
+        if named_hm:
+            h, mn = named_hm
+            target = now.replace(hour=h, minute=mn, second=0, microsecond=0)
+            return _ts(target)
 
         return None
 

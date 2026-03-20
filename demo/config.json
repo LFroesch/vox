@@ -1,0 +1,170 @@
+{
+  "hotkeys": {
+    "voice_record": "f9",
+    "clipboard_history": "ctrl+shift+v",
+    "quick_launcher": "ctrl+space"
+  },
+  "voice": {
+    "energy_threshold": 300,
+    "pause_threshold": 1.5,
+    "phrase_time_limit": 60
+  },
+  "windows": {
+    "match_threshold": 40
+  },
+  "clipboard": {
+    "history_size": 50,
+    "snippets": [
+      {
+        "name": "Git Rebase",
+        "content": "git rebase -i HEAD~3"
+      },
+      {
+        "name": "Docker Compose Up",
+        "content": "docker compose up -d --build"
+      },
+      {
+        "name": "SSH Tunnel",
+        "content": "ssh -L 5432:localhost:5432 user@staging-server"
+      },
+      {
+        "name": "Env Template",
+        "content": "DATABASE_URL=postgres://user:pass@localhost:5432/mydb\nREDIS_URL=redis://localhost:6379\nAPI_KEY=your-key-here"
+      }
+    ]
+  },
+  "launcher": {
+    "items": [
+      {
+        "name": "VS Code",
+        "path": "C:\\Users\\lucas\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+        "item_type": "app",
+        "voice_phrase": "code",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": null,
+        "new_tab": false
+      },
+      {
+        "name": "Firefox",
+        "path": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+        "item_type": "app",
+        "voice_phrase": "firefox",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": null,
+        "new_tab": false
+      },
+      {
+        "name": "Spotify",
+        "path": "C:\\Users\\lucas\\AppData\\Roaming\\Spotify\\Spotify.exe",
+        "item_type": "app",
+        "voice_phrase": "spotify",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": null,
+        "new_tab": false
+      },
+      {
+        "name": "Discord",
+        "path": "C:\\Users\\lucas\\AppData\\Local\\Discord\\Update.exe",
+        "item_type": "app",
+        "voice_phrase": "discord",
+        "hotkey": null,
+        "args": "--processStart Discord.exe",
+        "icon": "",
+        "terminal_type": null,
+        "new_tab": false
+      },
+      {
+        "name": "File Explorer",
+        "path": "explorer.exe",
+        "item_type": "app",
+        "voice_phrase": "files",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": null,
+        "new_tab": false
+      },
+      {
+        "name": "Dev Terminal",
+        "path": "wt.exe",
+        "item_type": "terminal",
+        "voice_phrase": "terminal",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": "powershell",
+        "new_tab": false
+      },
+      {
+        "name": "WSL Terminal",
+        "path": "wt.exe",
+        "item_type": "terminal",
+        "voice_phrase": "w s l",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": "wsl",
+        "new_tab": false
+      },
+      {
+        "name": "GitHub",
+        "path": "https://github.com",
+        "item_type": "url",
+        "voice_phrase": "github",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": null,
+        "new_tab": false
+      },
+      {
+        "name": "Localhost",
+        "path": "http://localhost:3000",
+        "item_type": "url",
+        "voice_phrase": "localhost",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": null,
+        "new_tab": false
+      },
+      {
+        "name": "Projects Folder",
+        "path": "C:\\Users\\lucas\\Projects",
+        "item_type": "folder",
+        "voice_phrase": "projects",
+        "hotkey": null,
+        "args": "",
+        "icon": "",
+        "terminal_type": null,
+        "new_tab": false
+      }
+    ]
+  },
+  "favorites": {
+    "layouts": ["Coding", "Research"],
+    "launchers": ["VS Code", "Firefox", "Dev Terminal", "GitHub"],
+    "workflows": ["Dev Setup"]
+  },
+  "general": {
+    "editor": "vscode"
+  },
+  "ui": {
+    "theme": "dark",
+    "start_minimized": false,
+    "close_behavior": "tray",
+    "widget_enabled": true,
+    "widget_visible_in_tray": false,
+    "ui_scale": "Medium",
+    "widget_size": "Medium",
+    "voice_response": true,
+    "widget_x": 1720,
+    "widget_y": 200
+  }
+}
