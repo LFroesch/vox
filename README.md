@@ -122,6 +122,10 @@ Workflows batch-launch multiple apps/commands in sequence — e.g. open 5 editor
 
 Save current window positions and restore them by name or voice. Layouts are pure positioning — use workflows for launching apps.
 
+### WSL Distro Setting
+
+If you use WSL and have launcher items that open terminals or run commands in WSL, Vox needs to know which distro to target. The **WSL Distro** dropdown in Settings auto-detects installed distros. Leave it blank to use your default WSL distro, or pick a specific one (e.g. `Ubuntu`) if you have multiple installed. This controls which distro is used when launching WSL terminal items and building UNC paths (`\\wsl$\<Distro>\...`) for project folders.
+
 ## Architecture
 
 ```

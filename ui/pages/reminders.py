@@ -900,7 +900,8 @@ class RemindersPage(QWidget):
                 ti = time_edit.time()
                 fire_at = datetime(d.year(), d.month(), d.day(), ti.hour(), ti.minute()).timestamp()
                 updates["fire_at"] = fire_at
-                updates["fired"] = False
+                if fire_at > _time.time():
+                    updates["fired"] = False
 
             if msg_edit is not None:
                 updates["message"] = msg_edit.text().strip() or updates["label"]

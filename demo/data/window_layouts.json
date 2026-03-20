@@ -1,0 +1,57 @@
+{
+  "Coding": {
+    "window_0": {
+      "identifier": {"title_pattern": "Visual Studio Code", "exe_name": "Code.exe", "process_name": "Code"},
+      "position": {"x": 0, "y": 0, "width": 960, "height": 1040},
+      "exe_path": "C:\\Users\\lucas\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "is_borderless": false,
+      "is_maximized": false
+    },
+    "window_1": {
+      "identifier": {"title_pattern": "Windows Terminal", "exe_name": "WindowsTerminal.exe", "process_name": "WindowsTerminal"},
+      "position": {"x": 960, "y": 0, "width": 960, "height": 520},
+      "exe_path": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal\\wt.exe",
+      "is_borderless": false,
+      "is_maximized": false
+    },
+    "window_2": {
+      "identifier": {"title_pattern": "Mozilla Firefox", "exe_name": "firefox.exe", "process_name": "firefox"},
+      "position": {"x": 960, "y": 520, "width": 960, "height": 520},
+      "exe_path": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+      "is_borderless": false,
+      "is_maximized": false
+    }
+  },
+  "Research": {
+    "window_0": {
+      "identifier": {"title_pattern": "Mozilla Firefox", "exe_name": "firefox.exe", "process_name": "firefox"},
+      "position": {"x": 0, "y": 0, "width": 1280, "height": 1040},
+      "exe_path": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+      "is_borderless": false,
+      "is_maximized": false
+    },
+    "window_1": {
+      "identifier": {"title_pattern": "Visual Studio Code", "exe_name": "Code.exe", "process_name": "Code"},
+      "position": {"x": 1280, "y": 0, "width": 640, "height": 1040},
+      "exe_path": "C:\\Users\\lucas\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "is_borderless": false,
+      "is_maximized": false
+    }
+  },
+  "Gaming": {
+    "window_0": {
+      "identifier": {"title_pattern": "Discord", "exe_name": "Discord.exe", "process_name": "Discord"},
+      "position": {"x": 0, "y": 0, "width": 480, "height": 1040},
+      "exe_path": "C:\\Users\\lucas\\AppData\\Local\\Discord\\Discord.exe",
+      "is_borderless": false,
+      "is_maximized": false
+    },
+    "window_1": {
+      "identifier": {"title_pattern": "Spotify", "exe_name": "Spotify.exe", "process_name": "Spotify"},
+      "position": {"x": 0, "y": 520, "width": 480, "height": 520},
+      "exe_path": "C:\\Users\\lucas\\AppData\\Roaming\\Spotify\\Spotify.exe",
+      "is_borderless": false,
+      "is_maximized": false
+    }
+  }
+}

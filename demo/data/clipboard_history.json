@@ -1,0 +1,42 @@
+[
+  {
+    "content": "git log --oneline --graph --all",
+    "timestamp": "2026-03-20 14:23:15",
+    "preview": "git log --oneline --graph --all"
+  },
+  {
+    "content": "def fibonacci(n):\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)",
+    "timestamp": "2026-03-20 13:45:02",
+    "preview": "def fibonacci(n):  if n <= 1:  ..."
+  },
+  {
+    "content": "https://docs.python.org/3/library/asyncio.html",
+    "timestamp": "2026-03-20 12:30:44",
+    "preview": "https://docs.python.org/3/library/asyncio.html"
+  },
+  {
+    "content": "SELECT u.name, COUNT(o.id) as order_count\nFROM users u\nLEFT JOIN orders o ON u.id = o.user_id\nGROUP BY u.name\nHAVING COUNT(o.id) > 5\nORDER BY order_count DESC;",
+    "timestamp": "2026-03-20 11:15:33",
+    "preview": "SELECT u.name, COUNT(o.id) as order_count..."
+  },
+  {
+    "content": "192.168.1.42",
+    "timestamp": "2026-03-20 10:08:19",
+    "preview": "192.168.1.42"
+  },
+  {
+    "content": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.token",
+    "timestamp": "2026-03-20 09:52:07",
+    "preview": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6Ikp..."
+  },
+  {
+    "content": "docker exec -it postgres_dev psql -U admin -d myapp",
+    "timestamp": "2026-03-19 17:30:22",
+    "preview": "docker exec -it postgres_dev psql -U admin -d myapp"
+  },
+  {
+    "content": "The quick brown fox jumps over the lazy dog",
+    "timestamp": "2026-03-19 16:14:55",
+    "preview": "The quick brown fox jumps over the lazy dog"
+  }
+]

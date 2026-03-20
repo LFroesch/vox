@@ -182,6 +182,10 @@ class ClipboardPage(QWidget):
         save_btn.clicked.connect(lambda _=False, e=entry: self._save_as_snippet(e))
         clip_btns_layout.addWidget(save_btn)
 
+        del_btn = _icon_btn("🗑️", "Delete")
+        del_btn.clicked.connect(lambda _=False, i=idx: self._delete_clip(i))
+        clip_btns_layout.addWidget(del_btn)
+
         clip_btns.setVisible(False)
         header.addWidget(clip_btns)
         frame.enterEvent = lambda e: clip_btns.setVisible(True)
@@ -227,6 +231,11 @@ class ClipboardPage(QWidget):
     def _paste_clip(self, idx):
         if self.app.clipboard_mgr.paste(idx):
             self.app.set_status("Copied to clipboard", COLORS["success"])
+
+    def _delete_clip(self, idx):
+        if self.app.clipboard_mgr.delete_entry(idx):
+            self._clip_fingerprint = None
+            self.refresh_history()
 
     def _apply_clip_filter(self):
         q = self._clip_search.text().strip().lower()
