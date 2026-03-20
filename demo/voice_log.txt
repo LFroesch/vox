@@ -1,9 +1,0 @@
-open firefox
-remind me to review PR at 3pm
-set timer 25 minutes
-note look into caching strategy
-search python asyncio tutorial
-coding layout
-run dev setup
-play spotify
-what time is it
