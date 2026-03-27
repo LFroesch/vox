@@ -5,12 +5,31 @@ from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QFrame, QScrollArea, QApplication,
+    QFrame, QScrollArea, QApplication, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QPoint, QTimer
+from PyQt6.QtGui import QFontMetrics
 
 from ui.styles import COLORS, font, R, WIDGET_WIDTHS, _ui_scale_factor
 from core.config import get_config
+
+
+class _ElidedButton(QPushButton):
+    """QPushButton that elides its text with '…' when too wide for the button."""
+
+    def __init__(self, full_text, parent=None):
+        super().__init__(full_text, parent)
+        self._full_text = full_text
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        fm = QFontMetrics(self.font())
+        # account for padding (8px left + 8px right from stylesheet)
+        avail = self.width() - 16
+        elided = fm.elidedText(self._full_text, Qt.TextElideMode.ElideRight, avail)
+        super().setText(elided)
+        self.setToolTip(self._full_text if elided != self._full_text else "")
 
 
 class FloatingWidget(QWidget):
@@ -282,7 +301,7 @@ class FloatingWidget(QWidget):
             parent_layout.addWidget(lbl, 0, 0, 1, 2)
         else:
             for i, (name, callback) in enumerate(items):
-                btn = QPushButton(name)
+                btn = _ElidedButton(name)
                 btn.setFixedHeight(28)
                 btn.setFont(font(11))
                 btn.setStyleSheet(
@@ -385,8 +404,15 @@ class FloatingWidget(QWidget):
             name = QLabel(entry.label)
             name.setFont(font(11))
             name.setStyleSheet(f"color: {COLORS['warning'] if is_alert else COLORS['text']};")
+            name.setMinimumWidth(0)
+            name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            name.setTextFormat(Qt.TextFormat.PlainText)
+            fm = QFontMetrics(name.font())
+            elided = fm.elidedText(entry.label, Qt.TextElideMode.ElideRight, self._width - 90)
+            name.setText(elided)
+            if elided != entry.label:
+                name.setToolTip(entry.label)
             row.addWidget(name)
-            row.addStretch()
 
             if is_triggered:
                 dismiss_btn = QPushButton("✓")
