@@ -107,6 +107,12 @@ class FloatingWidget(QWidget):
         self.mic_btn.clicked.connect(self.voice_toggle)
         top_bar.addWidget(self.mic_btn)
 
+        self._wake_indicator = QLabel("👂")
+        self._wake_indicator.setFont(font(10))
+        self._wake_indicator.setToolTip("Wake word active — say \"Hey Vox\"")
+        self._wake_indicator.hide()
+        top_bar.addWidget(self._wake_indicator)
+
         title = QLabel("vox")
         title.setFont(font(21, "bold"))
         title.setStyleSheet(
@@ -498,6 +504,10 @@ class FloatingWidget(QWidget):
                 f"border-radius: {R['md']}px; border: none;"
             )
             self.mic_btn.setText("MIC")
+
+    def set_wake_word_active(self, active: bool):
+        """Show/hide the wake word indicator."""
+        self._wake_indicator.setVisible(active)
 
     def set_status(self, text: str, color: str = None):
         c = color or COLORS['text_dim']

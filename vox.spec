@@ -21,6 +21,8 @@ a = Analysis(
     datas=[
         # Include icon
         ('myicon.ico', '.'),
+        # Vosk wake word model
+        ('data/models/vosk', 'data/models/vosk'),
     ],
     hiddenimports=[
         # PyQt6

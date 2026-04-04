@@ -110,7 +110,7 @@ class ClipboardPage(QWidget):
     # ── History ──────────────────────────────────────────────────────
 
     def refresh_history(self):
-        history = self.app.clipboard_mgr.get_history(limit=15)
+        history = self.app.clipboard_mgr.get_history(limit=100)
         fingerprint = tuple(e.content for e in history) if history else ()
         if self._clip_fingerprint == fingerprint:
             return

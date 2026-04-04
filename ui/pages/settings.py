@@ -184,6 +184,16 @@ class SettingsPage(QWidget):
         right.addWidget(self._voice_resp_cb)
         layout.addWidget(row)
 
+        # Wake Word
+        row, right = self._setting_row("Wake Word (\"Hey Vox\")")
+        self._wake_word_cb = QCheckBox()
+        self._wake_word_cb.setChecked(
+            self.app.config.get('voice', 'wake_word_enabled', default=False)
+        )
+        self._wake_word_cb.stateChanged.connect(self._on_wake_word_toggle)
+        right.addWidget(self._wake_word_cb)
+        layout.addWidget(row)
+
         # Reminder Confirmation TTS
         row, right = self._setting_row("Reminder Confirmation")
         hint = QLabel("full details vs brief")
@@ -358,6 +368,15 @@ class SettingsPage(QWidget):
         self.app.config.set('hotkeys', 'voice_record', value=new_key.lower())
         self.app.hotkey_manager.register(new_key.lower(), self.app.toggle_voice, "Voice recording")
         self.app.update_hotkey_display(display)
+
+    def _on_wake_word_toggle(self):
+        enabled = self._wake_word_cb.isChecked()
+        self.app.config.set('voice', 'wake_word_enabled', value=enabled)
+        if enabled:
+            self.app.wakeword.start()
+        else:
+            self.app.wakeword.stop()
+        self.app.widget.set_wake_word_active(enabled)
 
     def _on_voice_response_toggle(self):
         enabled = self._voice_resp_cb.isChecked()

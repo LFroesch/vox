@@ -24,7 +24,8 @@ class Config:
             "voice": {
                 "energy_threshold": 300,
                 "pause_threshold": 1.5,
-                "phrase_time_limit": 60
+                "phrase_time_limit": 60,
+                "wake_word_enabled": False
             },
             "windows": {
                 "match_threshold": 40

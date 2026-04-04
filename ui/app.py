@@ -21,6 +21,7 @@ from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 from core.config import get_config
 from core.hotkeys import HotkeyManager
 from modules.voice import VoiceRecognizer, CommandManager
+from modules.voice.wakeword import WakeWordListener
 from modules.voice.tts import TextToSpeech
 from modules.windows import WindowManager, LayoutManager
 from modules.launcher import Launcher
@@ -87,6 +88,11 @@ class VoxApp(QMainWindow):
         self.reminders = ReminderManager(self.config.data_dir)
         self.workflow_manager = WorkflowManager(self.launcher, self.layout_manager)
 
+        # Wake word listener
+        self.wakeword = WakeWordListener(on_wake=lambda: self.voice_status_signal.emit("__wake__"))
+        if self.config.get('voice', 'wake_word_enabled', default=False):
+            self.wakeword.start()
+
         # Register voice commands
         self.commands.register_layout_commands(
             self.layout_manager, on_load_callback=self._on_layout_loaded
@@ -135,6 +141,7 @@ class VoxApp(QMainWindow):
         )
         if self.config.get('ui', 'widget_enabled', default=True):
             self.widget.show()
+        self.widget.set_wake_word_active(self.wakeword._running)
 
         # Show mic status if unavailable
         if not self.voice.mic_available:
@@ -794,13 +801,23 @@ class VoxApp(QMainWindow):
             self.set_status(f"? {text}", COLORS["warning"])
 
     def _handle_voice_status(self, status: str):
+        # Wake word trigger — start recording from main thread
+        if status == "__wake__":
+            if not self.voice.is_recording and not self.voice._mic_busy:
+                self.wakeword.pause()
+                # Brief delay so recognizer doesn't pick up tail end of "hey vox"
+                QTimer.singleShot(300, self.voice.start_recording)
+            return
+
         self.set_status(status, COLORS["text_dim"])
         voice_key = self.config.get('hotkeys', 'voice_record', default='F9').upper()
         is_recording = "Listening" in status
 
         self.widget.set_recording(is_recording)
 
+        # Pause/resume wake word around recording
         if is_recording:
+            self.wakeword.pause()
             self.record_btn.setText("REC Recording...")
             self.record_btn.setStyleSheet(
                 f"background: {COLORS['error']}; color: {COLORS['text']}; "
@@ -812,6 +829,9 @@ class VoxApp(QMainWindow):
             self.record_btn.setProperty("accent", True)
             self.record_btn.style().unpolish(self.record_btn)
             self.record_btn.style().polish(self.record_btn)
+            # Resume wake word after recording completes
+            if self.wakeword._running:
+                self.wakeword.resume()
 
     def _handle_voice_error(self, error: str):
         self.set_status(error, COLORS["error"])

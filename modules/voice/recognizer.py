@@ -67,6 +67,7 @@ class VoiceRecognizer:
         """Stop voice recording"""
         self.is_recording = False
         self._play_beep("stop")
+        self._notify_status("Cancelled")
 
     def toggle_recording(self):
         """Toggle recording state"""
@@ -87,6 +88,11 @@ class VoiceRecognizer:
                 )
 
             self._mic_busy = False
+
+            # User cancelled while listen() was blocking
+            if not self.is_recording:
+                return
+
             self._transcribe(audio)
 
         except sr.WaitTimeoutError:
