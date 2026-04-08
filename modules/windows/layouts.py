@@ -98,8 +98,8 @@ class LayoutManager:
                 else:
                     match = candidates.pop(0)
 
-                if self.wm.is_minimized(match.hwnd):
-                    self.wm.restore_window(match.hwnd)
+                # Restore from minimized, maximized, or fullscreen before repositioning
+                self.wm.restore_window(match.hwnd)
                 saved_borderless = window_data.get('is_borderless', False)
                 if self.wm.is_borderless(match.hwnd) != saved_borderless:
                     self.wm.set_borderless(match.hwnd, saved_borderless)
@@ -108,7 +108,13 @@ class LayoutManager:
                     applied += 1
                 else:
                     pos = window_data['position']
-                    if self.wm.move_window(match.hwnd, pos['x'], pos['y'], pos['width'], pos['height']):
+                    sw, sh = self.wm.screen_width, self.wm.screen_height
+                    # If saved size is >= 95% of screen, maximize rather than
+                    # hard-placing (avoids DWM extended-frame overflow)
+                    if pos['width'] >= sw * 0.95 and pos['height'] >= sh * 0.95:
+                        self.wm.maximize_window(match.hwnd)
+                        applied += 1
+                    elif self.wm.move_window(match.hwnd, pos['x'], pos['y'], pos['width'], pos['height']):
                         applied += 1
             else:
                 failed.append(f"{app_type} window")

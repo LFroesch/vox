@@ -44,7 +44,8 @@ class WindowManager:
         'brave': ['brave', 'brave-browser'],
         'chrome': ['chrome', 'google chrome'],
         'firefox': ['firefox', 'mozilla'],
-        'code': ['visual studio code', 'code', 'vscode'],
+        'cursor': ['cursor'],
+        'code': ['visual studio code', 'vscode'],
         'notepad': ['notepad'],
         'notepad++': ['notepad++', 'npp'],
         'explorer': ['file explorer', 'windows explorer'],
@@ -63,6 +64,7 @@ class WindowManager:
         'brave': 'Brave Browser',
         'chrome': 'Google Chrome',
         'firefox': 'Firefox',
+        'cursor': 'Cursor',
         'code': 'VS Code',
         'notepad': 'Notepad',
         'explorer': 'File Explorer',
@@ -186,9 +188,9 @@ class WindowManager:
         return groups
 
     def move_window(self, hwnd: int, x: int, y: int, width: int, height: int) -> bool:
-        """Move and resize a window"""
+        """Move and resize a window without changing Z-order"""
         try:
-            win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, width, height, 0)
+            win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, width, height, win32con.SWP_NOZORDER)
             return True
         except Exception as e:
             print(f"Failed to move window: {e}")
@@ -256,11 +258,12 @@ class WindowManager:
                            self.screen_width // 2, self.screen_height // 2),
             "center": (self.screen_width // 4, self.screen_height // 4,
                       self.screen_width // 2, self.screen_height // 2),
-            "maximize": (0, 0, self.screen_width, self.screen_height),
         }
 
         if preset == "minimize":
             return self.minimize_window(hwnd)
+        elif preset == "maximize":
+            return self.maximize_window(hwnd)
         elif preset == "restore":
             return self.restore_window(hwnd)
         elif preset in presets:
