@@ -54,15 +54,16 @@ class ClipboardManager:
     def _save_history(self):
         """Save history to file, truncating oldest entries if over 5MB"""
         try:
-            # Truncate until under size limit
-            while self.history:
-                data = json.dumps([entry.to_dict() for entry in self.history], indent=2)
+            to_save = list(self.history)
+            while to_save:
+                data = json.dumps([entry.to_dict() for entry in to_save], indent=2)
                 if len(data.encode('utf-8')) <= self.MAX_FILE_SIZE:
                     break
-                self.history.pop()  # Remove oldest entry
-
+                to_save.pop()  # Remove oldest entry (list is newest-first)
+            else:
+                data = "[]"
             with open(self.history_file, 'w', encoding='utf-8') as f:
-                json.dump([entry.to_dict() for entry in self.history], f, indent=2)
+                f.write(data)
         except Exception as e:
             print(f"Error saving clipboard history: {e}")
 

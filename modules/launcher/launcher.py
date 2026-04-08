@@ -36,6 +36,7 @@ class Launcher:
     def __init__(self):
         self.config = get_config()
         self.items: List[LaunchItem] = []
+        self.window_manager = None  # injected by app after init
         self._load_items()
 
     def _load_items(self):
@@ -108,8 +109,44 @@ class Launcher:
             return self.launch(item)
         return False
 
+    def _try_focus_existing(self, item: LaunchItem) -> bool:
+        """If a matching window exists, bring it forward. Returns True if focused."""
+        if not self.window_manager:
+            return False
+        proc_name = os.path.basename(item.path.strip('"')).lower()
+        # Extract last path component from args as a folder keyword
+        folder_kw = None
+        if item.args:
+            parts = [p for p in item.args.replace('\\', '/').split('/') if p and p not in ('$',)]
+            if parts:
+                folder_kw = parts[-1].lower()
+        windows = self.window_manager.get_all_windows_with_minimized()
+        candidates = [w for w in windows if w.process_name.lower() == proc_name]
+        if not candidates:
+            return False
+        if folder_kw:
+            matches = [w for w in candidates if folder_kw in w.title.lower()]
+            if not matches:
+                return False  # App open but not this project — launch new instance
+            target = matches[0]
+        else:
+            target = candidates[0]
+        self.window_manager.restore_window(target.hwnd)
+        try:
+            import win32gui
+            win32gui.SetForegroundWindow(target.hwnd)
+        except Exception:
+            try:
+                import win32gui
+                win32gui.BringWindowToTop(target.hwnd)
+            except Exception:
+                pass
+        return True
+
     def _launch_app(self, item: LaunchItem) -> bool:
         """Launch an application"""
+        if self._try_focus_existing(item):
+            return True
         path = os.path.normpath(os.path.expandvars(os.path.expanduser(item.path.strip('"'))))
         ext = Path(path).suffix.lower()
         # .lnk/.url/.appref-ms → always use os.startfile (ShellExecute handles spaces)

@@ -1,5 +1,16 @@
 ## DevLog
 
+### 2026-04-08: Focus-or-launch for app launchers
+- **Focus existing window instead of re-launching**: `_launch_app` now checks for an existing window of that process before spawning. If `item.args` contains a project path, it extracts the last folder name and requires it to appear in the window title — so "active - cursor" and "vox - cursor" are treated as distinct windows. No match = launches new instance as before. Wired up by injecting `window_manager` into `Launcher` from `app.py`. (`launcher/launcher.py`, `ui/app.py`)
+
+### 2026-04-08: Bug fixes — browser layout race, widget size, reminders, clipboard
+- **Brave/browser layout race**: Browsers drift back after restore before DWM settles. Now fires a deferred second `move_window` call 350ms later for brave/chrome/firefox/edge. (`layouts.py`)
+- **Layout page auto-refresh**: Windows list now auto-refreshes every 10s while the page is visible — no more manual Refresh needed. (`pages/windows.py`)
+- **Widget size — Small/Large only**: Removed Medium. Large = 250px wide, MAX_H = 580 (taller). Small keeps 175px and now uses a single column for action lists instead of 2. Config default changed to Large. (`styles.py`, `widget.py`, `config.py`, `pages/settings.py`)
+- **Widget reminders — (x) button**: Fired non-recurring reminders now show a dismiss ✓ button instead of "Done" text. Dismissing a non-recurring fired entry calls `cancel()` (removes it) instead of `dismiss()` (which only worked for recurring). (`widget.py`, `app.py`)
+- **Widget reminders repaint**: `_clear()` now immediately hides and detaches old widgets (`hide()`+`setParent(None)`) before `deleteLater()`, fixing stale display until recollapse. (`widget.py`)
+- **Clipboard save bug**: `_save_history` was mutating `self.history` in-place while truncating to the 5MB limit, causing in-memory data loss. Now works on a copy. (`clipboard/clipboard.py`)
+
 ### 2026-03-20: Reminder TTS confirmation, expired edit fix, README WSL docs
 - **Reminder confirmation TTS**: Voice-set reminders now speak a full confirmation like "Setting reminder for 3pm tomorrow to: take out the trash". New "Reminder Confirmation" toggle in Settings (next to Voice Response) controls this — OFF = no TTS for reminder confirmations.
 - **Expired reminder edit bug**: Editing a fired reminder no longer immediately replays it. Only resets `fired=False` when new fire_at is in the future.

@@ -50,7 +50,7 @@ class Config:
                 "widget_enabled": True,
                 "widget_visible_in_tray": False,
                 "ui_scale": "Medium",
-                "widget_size": "Medium",
+                "widget_size": "Large",
                 "voice_response": True
             }
         }

@@ -264,8 +264,8 @@ class SettingsPage(QWidget):
         # Widget Size
         row, right = self._setting_row("Widget Size")
         self._wsize_combo = QComboBox()
-        self._wsize_combo.addItems(["Small", "Medium", "Large"])
-        current_wsize = self.app.config.get('ui', 'widget_size', default='Medium')
+        self._wsize_combo.addItems(["Small", "Large"])
+        current_wsize = self.app.config.get('ui', 'widget_size', default='Large')
         self._wsize_combo.setCurrentText(current_wsize)
         self._wsize_combo.setFixedWidth(160)
         self._wsize_combo.currentTextChanged.connect(self._on_widget_size_change)

@@ -71,7 +71,7 @@ PREVIEW_COLORS = [
     "#5ba69e", "#a65b6d", "#7b8ba6", "#a6985b",
 ]
 
-WIDGET_WIDTHS = {"Small": 175, "Medium": 215, "Large": 270}
+WIDGET_WIDTHS = {"Small": 175, "Large": 250}
 
 
 def fmt_time(dt: datetime = None, seconds: bool = True) -> str:

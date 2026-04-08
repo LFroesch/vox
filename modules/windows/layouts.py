@@ -1,9 +1,19 @@
 import json
 import time
+import threading
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from core.config import get_config
 from .manager import WindowManager, WindowInfo
+
+_BROWSER_TYPES = {'brave', 'chrome', 'firefox', 'edge'}
+
+def _deferred_move(wm: WindowManager, hwnd: int, x: int, y: int, w: int, h: int, delay: float = 0.35):
+    """Move window again after a short delay — fixes browser race on restore."""
+    def _do():
+        time.sleep(delay)
+        wm.move_window(hwnd, x, y, w, h)
+    threading.Thread(target=_do, daemon=True).start()
 
 class LayoutManager:
     """Manages window layout saving and restoration"""
@@ -116,6 +126,9 @@ class LayoutManager:
                         applied += 1
                     elif self.wm.move_window(match.hwnd, pos['x'], pos['y'], pos['width'], pos['height']):
                         applied += 1
+                        # Browsers need a second nudge — they often drift back after restore
+                        if app_type in _BROWSER_TYPES:
+                            _deferred_move(self.wm, match.hwnd, pos['x'], pos['y'], pos['width'], pos['height'])
             else:
                 failed.append(f"{app_type} window")
 

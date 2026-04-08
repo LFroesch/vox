@@ -84,6 +84,7 @@ class VoxApp(QMainWindow):
         self.window_manager = WindowManager()
         self.layout_manager = LayoutManager(self.window_manager)
         self.launcher = Launcher()
+        self.launcher.window_manager = self.window_manager
         self.clipboard_mgr = ClipboardManager()
         self.reminders = ReminderManager(self.config.data_dir)
         self.workflow_manager = WorkflowManager(self.launcher, self.layout_manager)
@@ -470,7 +471,11 @@ class VoxApp(QMainWindow):
         self._update_taskbar_badge(count)
 
     def _dismiss_reminder_from_widget(self, eid):
-        self.reminders.dismiss(eid)
+        entry = next((e for e in self.reminders.get_active() if e.id == eid), None)
+        if entry and entry.recur:
+            self.reminders.dismiss(eid)
+        else:
+            self.reminders.cancel(eid)
         self.push_reminders_to_ui()
 
     def mark_dirty(self, *names):

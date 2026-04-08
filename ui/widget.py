@@ -33,16 +33,17 @@ class _ElidedButton(QPushButton):
 
 
 class FloatingWidget(QWidget):
-    MAX_H = 500
+    MAX_H = 580
 
     def __init__(self, voice_toggle_cb, show_main_cb, get_actions_cb=None,
-                 widget_size="Medium", dismiss_reminder_cb=None):
+                 widget_size="Large", dismiss_reminder_cb=None):
         super().__init__()
         self.voice_toggle = voice_toggle_cb
         self.show_main = show_main_cb
         self.get_actions = get_actions_cb
         self._dismiss_cb = dismiss_reminder_cb
-        base_width = WIDGET_WIDTHS.get(widget_size, 320)
+        self._widget_size = widget_size
+        base_width = WIDGET_WIDTHS.get(widget_size, 250)
         self._width = int(base_width * _ui_scale_factor)
 
         self._status_expanded = False
@@ -300,11 +301,12 @@ class FloatingWidget(QWidget):
 
     def _build_action_list(self, parent_layout, items, empty_msg):
         _clear(parent_layout)
+        cols = 1 if getattr(self, '_widget_size', 'Large') == 'Small' else 2
         if not items:
             lbl = QLabel(empty_msg)
             lbl.setFont(font(11))
             lbl.setStyleSheet(f"color: {COLORS['text_muted']};")
-            parent_layout.addWidget(lbl, 0, 0, 1, 2)
+            parent_layout.addWidget(lbl, 0, 0, 1, cols)
         else:
             for i, (name, callback) in enumerate(items):
                 btn = _ElidedButton(name)
@@ -317,7 +319,7 @@ class FloatingWidget(QWidget):
                 )
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn.clicked.connect(lambda _, cb=callback: cb())
-                parent_layout.addWidget(btn, i // 2, i % 2)
+                parent_layout.addWidget(btn, i // cols, i % cols)
         self._update_size()
 
     def _refresh_layouts(self):
@@ -420,7 +422,7 @@ class FloatingWidget(QWidget):
                 name.setToolTip(entry.label)
             row.addWidget(name)
 
-            if is_triggered:
+            if is_triggered or is_fired:
                 dismiss_btn = QPushButton("✓")
                 dismiss_btn.setFixedSize(24, 20)
                 dismiss_btn.setFont(font(10))
@@ -431,11 +433,6 @@ class FloatingWidget(QWidget):
                 )
                 dismiss_btn.clicked.connect(lambda _, eid=entry.id: self._dismiss_reminder(eid))
                 row.addWidget(dismiss_btn)
-            elif is_fired:
-                done_lbl = QLabel("Done")
-                done_lbl.setFont(font(10))
-                done_lbl.setStyleSheet(f"color: {COLORS['warning']};")
-                row.addWidget(done_lbl)
             else:
                 now = _time.time()
                 if entry.type == "timer":
@@ -484,7 +481,8 @@ class FloatingWidget(QWidget):
 
     def resize_to(self, size: str):
         from ui.styles import WIDGET_WIDTHS, _ui_scale_factor
-        base_width = WIDGET_WIDTHS.get(size, 215)
+        self._widget_size = size
+        base_width = WIDGET_WIDTHS.get(size, 250)
         self._width = int(base_width * _ui_scale_factor)
         self.setFixedWidth(self._width)
         self._update_size()
@@ -590,6 +588,9 @@ def _clear(layout):
     while layout.count():
         child = layout.takeAt(0)
         if child.widget():
-            child.widget().deleteLater()
+            w = child.widget()
+            w.hide()
+            w.setParent(None)
+            w.deleteLater()
         elif child.layout():
             _clear(child.layout())

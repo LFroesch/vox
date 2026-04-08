@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QComboBox, QTabWidget, QDialog, QSpinBox,
     QFileDialog,
 )
-from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtCore import Qt, QRectF, QTimer
 from PyQt6.QtGui import QPainter, QColor, QFont as QF, QPen
 
 from ui.styles import COLORS, font, R, PREVIEW_COLORS
@@ -114,6 +114,13 @@ class WindowsPage(QWidget):
         self._collapsed_groups = set()
         self._windows_initialized = False
         self._init_ui()
+        self._auto_refresh_timer = QTimer(self)
+        self._auto_refresh_timer.timeout.connect(self._auto_refresh)
+        self._auto_refresh_timer.start(10000)
+
+    def _auto_refresh(self):
+        if self.isVisible():
+            self.refresh_windows()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
