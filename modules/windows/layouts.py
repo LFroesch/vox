@@ -15,6 +15,30 @@ def _deferred_move(wm: WindowManager, hwnd: int, x: int, y: int, w: int, h: int,
         wm.move_window(hwnd, x, y, w, h)
     threading.Thread(target=_do, daemon=True).start()
 
+
+def _prime_browser_monitor(wm: WindowManager, hwnd: int, x: int, y: int, w: int, h: int):
+    """Pre-position browser mostly on the target monitor before final placement."""
+    seed_w = max(700, min(w, 1300))
+    seed_h = max(500, min(h, 900))
+    wm.move_window(hwnd, x + 40, y + 40, seed_w, seed_h)
+
+
+def _staged_browser_move(wm: WindowManager, hwnd: int, x: int, y: int, w: int, h: int):
+    """Apply immediate + delayed moves for browsers that drift after restore."""
+    _prime_browser_monitor(wm, hwnd, x, y, w, h)
+    wm.move_window(hwnd, x, y, w, h)
+    _deferred_move(wm, hwnd, x, y, w, h, delay=0.25)
+    _deferred_move(wm, hwnd, x, y, w, h, delay=0.60)
+
+
+def _deferred_browser_maximize(wm: WindowManager, hwnd: int, x: int, y: int, w: int, h: int, delay: float = 0.35):
+    """Re-prime monitor then maximize to keep browsers on the intended screen."""
+    def _do():
+        time.sleep(delay)
+        _prime_browser_monitor(wm, hwnd, x, y, w, h)
+        wm.maximize_window(hwnd)
+    threading.Thread(target=_do, daemon=True).start()
+
 class LayoutManager:
     """Manages window layout saving and restoration"""
 
@@ -113,22 +137,34 @@ class LayoutManager:
                 saved_borderless = window_data.get('is_borderless', False)
                 if self.wm.is_borderless(match.hwnd) != saved_borderless:
                     self.wm.set_borderless(match.hwnd, saved_borderless)
+                pos = window_data.get('position', {})
+                px = pos.get('x', 0)
+                py = pos.get('y', 0)
+                pw = pos.get('width', 1200)
+                ph = pos.get('height', 800)
                 if window_data.get('is_maximized', False):
+                    if app_type in _BROWSER_TYPES:
+                        _prime_browser_monitor(self.wm, match.hwnd, px, py, pw, ph)
                     self.wm.maximize_window(match.hwnd)
+                    if app_type in _BROWSER_TYPES:
+                        _deferred_browser_maximize(self.wm, match.hwnd, px, py, pw, ph)
                     applied += 1
                 else:
-                    pos = window_data['position']
                     sw, sh = self.wm.screen_width, self.wm.screen_height
                     # If saved size is >= 95% of screen, maximize rather than
                     # hard-placing (avoids DWM extended-frame overflow)
-                    if pos['width'] >= sw * 0.95 and pos['height'] >= sh * 0.95:
+                    if pw >= sw * 0.95 and ph >= sh * 0.95:
+                        if app_type in _BROWSER_TYPES:
+                            _prime_browser_monitor(self.wm, match.hwnd, px, py, pw, ph)
                         self.wm.maximize_window(match.hwnd)
+                        if app_type in _BROWSER_TYPES:
+                            _deferred_browser_maximize(self.wm, match.hwnd, px, py, pw, ph)
                         applied += 1
-                    elif self.wm.move_window(match.hwnd, pos['x'], pos['y'], pos['width'], pos['height']):
+                    elif self.wm.move_window(match.hwnd, px, py, pw, ph):
                         applied += 1
                         # Browsers need a second nudge — they often drift back after restore
                         if app_type in _BROWSER_TYPES:
-                            _deferred_move(self.wm, match.hwnd, pos['x'], pos['y'], pos['width'], pos['height'])
+                            _staged_browser_move(self.wm, match.hwnd, px, py, pw, ph)
             else:
                 failed.append(f"{app_type} window")
 

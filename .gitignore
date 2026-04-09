@@ -10,3 +10,5 @@ build/
 .env
 *.spec.bak
 WORK.md
+TOMOVE.md
+.codex

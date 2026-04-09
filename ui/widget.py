@@ -78,6 +78,11 @@ class FloatingWidget(QWidget):
         self._build_ui()
         self._update_size()
 
+        # Periodically re-assert always-on-top (handles sleep/wake and window stacking)
+        self._raise_timer = QTimer(self)
+        self._raise_timer.timeout.connect(self._reassert_top)
+        self._raise_timer.start(15000)
+
     def _build_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(4, 4, 4, 4)
@@ -108,8 +113,9 @@ class FloatingWidget(QWidget):
         self.mic_btn.clicked.connect(self.voice_toggle)
         top_bar.addWidget(self.mic_btn)
 
-        self._wake_indicator = QLabel("👂")
-        self._wake_indicator.setFont(font(10))
+        self._wake_indicator = QLabel("●")
+        self._wake_indicator.setFont(font(8))
+        self._wake_indicator.setStyleSheet(f"color: {COLORS['success']}; padding: 0 2px;")
         self._wake_indicator.setToolTip("Wake word active — say \"Hey Vox\"")
         self._wake_indicator.hide()
         top_bar.addWidget(self._wake_indicator)
@@ -302,6 +308,8 @@ class FloatingWidget(QWidget):
     def _build_action_list(self, parent_layout, items, empty_msg):
         _clear(parent_layout)
         cols = 1 if getattr(self, '_widget_size', 'Large') == 'Small' else 2
+        parent_layout.setColumnStretch(0, 1)
+        parent_layout.setColumnStretch(1, 1 if cols == 2 else 0)
         if not items:
             lbl = QLabel(empty_msg)
             lbl.setFont(font(11))
@@ -367,11 +375,8 @@ class FloatingWidget(QWidget):
     def update_reminders(self, entries):
         """Called by app.push_reminders_to_ui() with active reminder entries."""
         self._rem_entries = entries
-        # Update header with count
-        now = _time.time()
-        triggered = [e for e in entries if getattr(e, 'triggered', False)]
-        fired = [e for e in entries if not getattr(e, 'recur', None) and getattr(e, 'fired', False)]
-        count = len(triggered) + len(fired)
+        # Update header with total count
+        count = len(entries)
         label = f"Reminders ({count})" if count else "Reminders"
         arrow = "▾" if self._reminders_expanded else "▸"
         self._reminders_header.setText(f"{arrow}  {label}")
@@ -412,15 +417,19 @@ class FloatingWidget(QWidget):
             name = QLabel(entry.label)
             name.setFont(font(11))
             name.setStyleSheet(f"color: {COLORS['warning'] if is_alert else COLORS['text']};")
-            name.setMinimumWidth(0)
-            name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            # Ignored horizontal policy lets long labels shrink so right-side controls
+            # (dismiss/time) always stay in-frame on small widget widths.
+            name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             name.setTextFormat(Qt.TextFormat.PlainText)
             fm = QFontMetrics(name.font())
-            elided = fm.elidedText(entry.label, Qt.TextElideMode.ElideRight, self._width - 90)
+            content_w = self._reminders_content.width() or (self._width - 20)
+            right_reserve = 54 if (is_triggered or is_fired) else 76
+            label_w = max(60, content_w - right_reserve)
+            elided = fm.elidedText(entry.label, Qt.TextElideMode.ElideRight, label_w)
             name.setText(elided)
             if elided != entry.label:
                 name.setToolTip(entry.label)
-            row.addWidget(name)
+            row.addWidget(name, 1)
 
             if is_triggered or is_fired:
                 dismiss_btn = QPushButton("✓")
@@ -506,6 +515,11 @@ class FloatingWidget(QWidget):
     def set_wake_word_active(self, active: bool):
         """Show/hide the wake word indicator."""
         self._wake_indicator.setVisible(active)
+
+    def _reassert_top(self):
+        """Re-assert always-on-top so widget doesn't get buried after sleep/wake."""
+        if self.isVisible():
+            self.raise_()
 
     def set_status(self, text: str, color: str = None):
         c = color or COLORS['text_dim']

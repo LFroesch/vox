@@ -186,6 +186,9 @@ class SettingsPage(QWidget):
 
         # Wake Word
         row, right = self._setting_row("Wake Word (\"Hey Vox\")")
+        wake_hint = QLabel("listens always-on — may trigger on similar sounds")
+        wake_hint.setFont(font(11))
+        wake_hint.setStyleSheet(f"color: {COLORS['text_muted']};")
         self._wake_word_cb = QCheckBox()
         self._wake_word_cb.setChecked(
             self.app.config.get('voice', 'wake_word_enabled', default=False)
@@ -193,6 +196,7 @@ class SettingsPage(QWidget):
         self._wake_word_cb.stateChanged.connect(self._on_wake_word_toggle)
         right.addWidget(self._wake_word_cb)
         layout.addWidget(row)
+        layout.addWidget(wake_hint)
 
         # Reminder Confirmation TTS
         row, right = self._setting_row("Reminder Confirmation")
@@ -394,7 +398,7 @@ class SettingsPage(QWidget):
     def _on_widget_size_change(self, v: str):
         self.app.config.set('ui', 'widget_size', value=v)
         if self.app.widget:
-            self.app.widget.resize_to(v)
+            self.app.recreate_widget()
 
     def _get_editor_cmd(self):
         editor = self.app.config.get('general', 'editor', default='system')

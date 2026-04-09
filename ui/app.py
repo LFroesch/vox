@@ -133,13 +133,7 @@ class VoxApp(QMainWindow):
         self._create_ui()
 
         # Floating widget
-        self.widget = FloatingWidget(
-            self.voice.toggle_recording,
-            self._show_main_window,
-            self._get_widget_actions,
-            widget_size=self.config.get('ui', 'widget_size', default='Medium'),
-            dismiss_reminder_cb=self._dismiss_reminder_from_widget,
-        )
+        self.widget = self._create_widget()
         if self.config.get('ui', 'widget_enabled', default=True):
             self.widget.show()
         self.widget.set_wake_word_active(self.wakeword._running)
@@ -720,6 +714,38 @@ class VoxApp(QMainWindow):
 
     # ── Widget ──
 
+    def _create_widget(self) -> FloatingWidget:
+        return FloatingWidget(
+            self.voice.toggle_recording,
+            self._show_main_window,
+            self._get_widget_actions,
+            widget_size=self.config.get('ui', 'widget_size', default='Large'),
+            dismiss_reminder_cb=self._dismiss_reminder_from_widget,
+        )
+
+    def recreate_widget(self):
+        """Rebuild floating widget (used for size changes that need fresh layouts)."""
+        old_widget = getattr(self, "widget", None)
+        old_visible = old_widget.isVisible() if old_widget else False
+        old_pos = old_widget.pos() if old_widget else None
+        old_status = old_widget.status_label.text() if old_widget else "Ready"
+        old_tts = old_widget.tts_label.text() if old_widget else ""
+
+        if old_widget:
+            old_widget.close()
+
+        self.widget = self._create_widget()
+        if old_pos is not None:
+            self.widget.move(old_pos)
+        self.widget.set_status(old_status)
+        self.widget.set_tts_response(old_tts)
+        self.widget.set_wake_word_active(self.wakeword._running)
+        self.push_reminders_to_ui()
+        self.widget.refresh_actions()
+
+        if old_visible and self.config.get('ui', 'widget_enabled', default=True):
+            self.widget.show()
+
     def _toggle_widget(self):
         if self.widget.isVisible():
             self.widget.hide()
@@ -761,7 +787,11 @@ class VoxApp(QMainWindow):
         note_text = self._extract_note_text(text)
         reminder_response = self._handle_reminder_voice(text)
 
-        if note_text:
+        wake_word_response = self._handle_wake_word_voice(text)
+        if wake_word_response is not None:
+            result = {"executed": True, "success": True, "type": "wake_word"}
+            response_to_speak = wake_word_response
+        elif note_text:
             self._save_note(note_text)
             result = {"executed": True, "success": True, "type": "note"}
             response_to_speak = "Note saved"
@@ -895,6 +925,28 @@ class VoxApp(QMainWindow):
 
     # ── Note / reminder helpers ──
 
+    def _handle_wake_word_voice(self, text: str):
+        """Returns TTS string if text is a wake word toggle command, else None."""
+        lower = text.lower().strip()
+        on_phrases = ["wake word on", "enable wake word", "turn on wake word", "start wake word"]
+        off_phrases = ["wake word off", "disable wake word", "turn off wake word", "stop wake word", "toggle wake word"]
+        toggle_phrases = ["toggle wake word"]
+        for phrase in on_phrases:
+            if phrase in lower:
+                if not self.wakeword._running:
+                    self.wakeword.start()
+                    self.config.set('voice', 'wake_word_enabled', value=True)
+                    self.widget.set_wake_word_active(True)
+                return "Wake word enabled"
+        for phrase in off_phrases:
+            if phrase in lower:
+                if self.wakeword._running:
+                    self.wakeword.stop()
+                    self.config.set('voice', 'wake_word_enabled', value=False)
+                    self.widget.set_wake_word_active(False)
+                return "Wake word disabled"
+        return None
+
     def _extract_note_text(self, text: str) -> Optional[str]:
         lower = text.lower().strip()
         for prefix in ["take a note ", "take note ", "note "]:
@@ -941,9 +993,9 @@ class VoxApp(QMainWindow):
             else:
                 dur = f"{s} second{'s' if s != 1 else ''}"
             if confirm:
-                task = f" to: {label}" if label and label.lower() != "timer" else ""
-                return f"Setting timer for {dur}{task}"
-            return "Setting timer"
+                task = f" — {label}" if label and label.lower() not in ("timer", "") else ""
+                return f"Timer set for {dur}{task}"
+            return "Timer set"
         elif parsed[0] == 'reminder':
             _, label, message, time_str = parsed
             entry = self.reminders.create_reminder(label, time_str, message=message)
@@ -953,9 +1005,10 @@ class VoxApp(QMainWindow):
             self.push_reminders_to_ui()
             if confirm:
                 when = self._friendly_fire_time(entry.fire_at)
-                task = f" to: {label}" if label and label.lower() != "reminder" else ""
-                return f"Setting reminder for {when}{task}"
-            return "Setting reminder"
+                if label and label.lower() not in ("reminder", ""):
+                    return f"Got it, reminding you to {label} at {when}"
+                return f"Reminder set for {when}"
+            return "Reminder set"
         elif parsed[0] == 'recurring':
             _, label, recur = parsed
             # Resolve time_str → HH:MM for non-interval types
@@ -971,9 +1024,9 @@ class VoxApp(QMainWindow):
             self.push_reminders_to_ui()
             if confirm:
                 from ui.pages.reminders import _recur_desc
-                task = f" to: {label}" if label else ""
-                return f"Setting recurring reminder, {_recur_desc(recur)}{task}"
-            return "Setting reminder"
+                task = f" to {label}" if label else ""
+                return f"Recurring reminder set{task}, {_recur_desc(recur)}"
+            return "Reminder set"
         return False  # unknown parsed type
 
     @staticmethod

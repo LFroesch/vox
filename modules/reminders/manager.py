@@ -260,13 +260,6 @@ class ReminderManager:
                 duration_secs += n * unit_map.get(raw, 60)
                 duration_spans.append((m.start(), m.end()))
 
-        # "in N days/weeks"
-        m = re.search(r'\b(\d+)[\s-]+(day|week)s?\b', lower)
-        if m and not duration_spans:
-            n, unit = int(m.group(1)), m.group(2)
-            duration_secs = n * (7 * 86400 if 'week' in unit else 86400)
-            duration_spans.append((m.start(), m.end()))
-
         # ── Extract clock time / date anywhere in sentence ───────────────────
         _DAY_NAMES = r'(?:monday|mon|tuesday|tues|tue|wednesday|wed|thursday|thurs|thu|friday|fri|saturday|sat|sunday|sun)'
         _NAMED_TIMES = r'(?:morning|afternoon|evening|tonight|noon|midnight|night)'
@@ -277,6 +270,13 @@ class ReminderManager:
 
         time_parts = []
         time_spans = []
+
+        # "in N days/weeks" — treat as a relative date reminder, not a countdown timer
+        m = re.search(r'\b(?:in\s+)?(\d+)[\s-]+(day|week)s?\b', lower)
+        if m and not duration_spans:
+            n, unit = int(m.group(1)), m.group(2)
+            time_parts.append(f"in {n} {unit}{'s' if n != 1 else ''}")
+            time_spans.append((m.start(), m.end()))
 
         # "next wednesday", "on friday", "this monday"
         for m in re.finditer(rf'\b(next\s+|this\s+|on\s+)?({_DAY_NAMES})\b', lower):
@@ -364,15 +364,17 @@ class ReminderManager:
                     if cleaned and len(cleaned) > 1:
                         task = candidate
 
-        # Pattern 4: fallback — strip trigger/connector words, use whatever's left
+        # Pattern 4: fallback — strip only unambiguous command/trigger words, keep content
         if not task:
             leftover = blanked
             leftover = re.sub(
-                r'\b(?:set|remind|reminder|timer|alarm|wake|notify|alert|ping|tell|'
-                r'me|myself|i|my|up|a|an|the|in|on|at|and|with|that|this|for|'
-                r'don\'?t|let|forget|heads?)\b', '', leftover
+                r'\b(?:set|remind|reminder|timer|alarm|wake|notify|alert|ping|tell|heads?)\b',
+                '', leftover
             )
+            leftover = re.sub(r'\bme\b|\bmyself\b', '', leftover)
             leftover = re.sub(r'\s+', ' ', leftover).strip()
+            # Strip leading connectors that patterns 1-3 may have missed
+            leftover = re.sub(r'^(?:to|about|for)\s+', '', leftover).strip()
             if leftover and len(leftover) > 2:
                 task = leftover
 
@@ -467,6 +469,14 @@ class ReminderManager:
     def _parse_time(self, time_str: str) -> Optional[float]:
         now = datetime.now()
         s = time_str.strip().lower()
+
+        # "in N days" / "in N weeks"
+        m = re.match(r'^in\s+(\d+)\s+(day|week)s?$', s)
+        if m:
+            n, unit = int(m.group(1)), m.group(2)
+            delta = timedelta(days=n * (7 if 'week' in unit else 1))
+            target = (now + delta).replace(hour=9, minute=0, second=0, microsecond=0)
+            return target.timestamp()
 
         # Extract "tomorrow" modifier
         add_day = bool(re.search(r'\btomorrow\b', s))
