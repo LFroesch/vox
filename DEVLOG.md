@@ -8,7 +8,7 @@
 - **Wake word voice toggle**: "wake word on/off", "enable/disable wake word", "turn on/off wake word" commands added — toggles and persists to config. (`app.py`)
 - **Voice reminder TTS**: More natural confirmations — "Timer set for 5 minutes — laundry", "Got it, reminding you to call mom at 3pm", "Recurring reminder set to standup, every day". (`app.py`)
 - **"in N days" bug**: "remind me in 28 days to X" was creating a 28-day countdown timer instead of a date-based reminder. Fixed: days/weeks now go to `time_parts` → `_parse_time("in 28 days")` → reminder at 9am that day. (`manager.py`)
-- **"don't" stripped from labels**: `don't` was in Pattern 4 fallback word strip list, so "don't be late" → "be late". Removed it — only actually-filler words remain. (`manager.py`)
+- **Pattern 4 over-stripping**: Fallback label extraction was stripping content words like `the`, `my`, `i`, `don't`, `in`, `on`, `at`, `and`, `for`, `let`, `forget` — all of which can appear in real task labels. Narrowed strip list to unambiguous command words only (`remind`, `timer`, `alarm`, `alert`, `ping`, `tell`, `me`, `myself`). "remind me I left the stove on" → `I left the stove on` instead of `left stove on`. (`manager.py`)
 - **Widget reminder count**: Header now shows total active reminder count, not just fired/triggered. (`widget.py`)
 - **Widget small mode**: Single-column sections (layouts/launchers/workflows) now fill full width in Small mode. (`widget.py`)
 

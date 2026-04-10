@@ -194,9 +194,9 @@ class SettingsPage(QWidget):
             self.app.config.get('voice', 'wake_word_enabled', default=False)
         )
         self._wake_word_cb.stateChanged.connect(self._on_wake_word_toggle)
+        right.addWidget(wake_hint)
         right.addWidget(self._wake_word_cb)
         layout.addWidget(row)
-        layout.addWidget(wake_hint)
 
         # Reminder Confirmation TTS
         row, right = self._setting_row("Reminder Confirmation")

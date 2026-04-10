@@ -779,6 +779,15 @@ class VoxApp(QMainWindow):
         if isinstance(alternatives, str):
             alternatives = [alternatives]
         text = alternatives[0]  # best transcription (used for free-text like notes/reminders)
+        # Strip wake word prefix in case it bled into the recording
+        import re as _re
+        text = _re.sub(r'^hey\s+vox[,\s]*', '', text, flags=_re.IGNORECASE).strip()
+        if not text:
+            return
+        alternatives = [text] + [
+            _re.sub(r'^hey\s+vox[,\s]*', '', a, flags=_re.IGNORECASE).strip()
+            for a in alternatives[1:]
+        ]
 
         timestamp = fmt_time(seconds=False)
         self.last_command = text
@@ -841,7 +850,7 @@ class VoxApp(QMainWindow):
             if not self.voice.is_recording and not self.voice._mic_busy:
                 self.wakeword.pause()
                 # Brief delay so recognizer doesn't pick up tail end of "hey vox"
-                QTimer.singleShot(300, self.voice.start_recording)
+                QTimer.singleShot(50, self.voice.start_recording)
             return
 
         self.set_status(status, COLORS["text_dim"])

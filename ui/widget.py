@@ -279,8 +279,14 @@ class FloatingWidget(QWidget):
         attr = f"_{section}_expanded"
         header = getattr(self, f"_{section}_header")
         content = getattr(self, f"_{section}_content")
-        label = {"status": "Status", "reminders": "Reminders", "layouts": "Layouts",
-                 "launchers": "Launchers", "workflows": "Workflows"}[section]
+        labels = {"status": "Status", "reminders": "Reminders", "layouts": "Layouts",
+                  "launchers": "Launchers", "workflows": "Workflows"}
+        label = labels[section]
+
+        # Preserve count suffix (e.g. "Reminders (3)") from current header text
+        current = header.text().lstrip("▾▸ ")
+        if section == "reminders" and current.startswith("Reminders"):
+            label = current
 
         expanded = not getattr(self, attr)
         setattr(self, attr, expanded)
@@ -375,8 +381,9 @@ class FloatingWidget(QWidget):
     def update_reminders(self, entries):
         """Called by app.push_reminders_to_ui() with active reminder entries."""
         self._rem_entries = entries
-        # Update header with total count
-        count = len(entries)
+        # Count only fired/triggered entries (what's actually shown in the list)
+        count = len([e for e in entries if getattr(e, 'triggered', False) or
+                     (not getattr(e, 'recur', None) and getattr(e, 'fired', False))])
         label = f"Reminders ({count})" if count else "Reminders"
         arrow = "▾" if self._reminders_expanded else "▸"
         self._reminders_header.setText(f"{arrow}  {label}")
