@@ -197,13 +197,15 @@ class ReminderManager:
         lower = re.sub(r'\beveryday\b', 'every day', lower)
         lower = re.sub(r'\bdaily\b', 'every day', lower)
 
-        # Must look like a reminder/timer request
+        # Must look like a reminder/timer request with the trigger near the start
+        # (prevents meta-statements like "everything is being treated as a reminder" from matching)
         _TRIGGER = (
             r'\b(?:remind|reminder|timer|alarm|set\s+(?:a\s+)?(?:timer|alarm|reminder)'
-            r'|wake|notify|alert|ping|don\'?t\s+(?:let\s+me\s+)?forget'
+            r'|wake\s+(?:me|up)|notify|alert|ping|don\'?t\s+(?:let\s+me\s+)?forget'
             r'|tell\s+me|heads?\s+up)\b'
         )
-        if not re.search(_TRIGGER, lower):
+        first_six = ' '.join(lower.split()[:6])
+        if not re.search(_TRIGGER, first_six):
             return None
 
         # Strip filler words/phrases that interfere with parsing

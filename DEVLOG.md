@@ -1,5 +1,12 @@
 ## DevLog
 
+### 2026-04-10: Reminder false-positives, fullscreen monitor, launch-to-front
+
+- **Reminder false-positives**: `_handle_reminder_voice` was called before wake word check and immediately creates entries as a side effect. Restructured `_handle_voice_result` to check wake word and notes first, only call reminder parsing in the else branch. Also tightened `_TRIGGER` regex: `|wake|` → `|wake\s+(?:me|up)|` so "wake word" no longer triggers reminder parsing. Additionally, `_TRIGGER` now only matches in the first 6 words — prevents meta-statements like "everything is being treated as a reminder" from creating spurious reminders. (`app.py`, `manager.py`)
+- **PIP windows filtered**: Added `HIDDEN_TITLES` set to `WindowManager` and `_is_hidden_window()` helper. "Picture in Picture" (Chrome/Brave/Firefox/Edge PIP overlay) is now excluded from all window listings. (`manager.py`)
+- **Fullscreen on wrong monitor**: Non-browser maximized windows were calling `maximize_window` without first moving to the target monitor. Extended `_prime_browser_monitor` call to all app types (not just browsers) before maximizing. (`layouts.py`)
+- **Launches now come to front**: Added `AllowSetForegroundWindow(ASFW_ANY)` call before every launch so the new process can steal focus from Vox. (`launcher.py`)
+
 ### 2026-04-09: Widget/voice/settings polish
 
 - **Widget always-on-top**: Added 15s `QTimer` that calls `raise_()` when visible — fixes widget getting buried after sleep/wake or busy sessions. (`widget.py`)

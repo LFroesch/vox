@@ -143,8 +143,8 @@ class LayoutManager:
                 pw = pos.get('width', 1200)
                 ph = pos.get('height', 800)
                 if window_data.get('is_maximized', False):
-                    if app_type in _BROWSER_TYPES:
-                        _prime_browser_monitor(self.wm, match.hwnd, px, py, pw, ph)
+                    # Always prime monitor position first so maximize lands on the right screen
+                    _prime_browser_monitor(self.wm, match.hwnd, px, py, pw, ph)
                     self.wm.maximize_window(match.hwnd)
                     if app_type in _BROWSER_TYPES:
                         _deferred_browser_maximize(self.wm, match.hwnd, px, py, pw, ph)
@@ -154,8 +154,7 @@ class LayoutManager:
                     # If saved size is >= 95% of screen, maximize rather than
                     # hard-placing (avoids DWM extended-frame overflow)
                     if pw >= sw * 0.95 and ph >= sh * 0.95:
-                        if app_type in _BROWSER_TYPES:
-                            _prime_browser_monitor(self.wm, match.hwnd, px, py, pw, ph)
+                        _prime_browser_monitor(self.wm, match.hwnd, px, py, pw, ph)
                         self.wm.maximize_window(match.hwnd)
                         if app_type in _BROWSER_TYPES:
                             _deferred_browser_maximize(self.wm, match.hwnd, px, py, pw, ph)

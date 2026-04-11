@@ -143,10 +143,21 @@ class Launcher:
                 pass
         return True
 
+    @staticmethod
+    def _allow_foreground():
+        """Allow the next launched process to take the foreground."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+            except Exception:
+                pass
+
     def _launch_app(self, item: LaunchItem) -> bool:
         """Launch an application"""
         if self._try_focus_existing(item):
             return True
+        self._allow_foreground()
         path = os.path.normpath(os.path.expandvars(os.path.expanduser(item.path.strip('"'))))
         ext = Path(path).suffix.lower()
         # .lnk/.url/.appref-ms → always use os.startfile (ShellExecute handles spaces)
@@ -171,6 +182,7 @@ class Launcher:
 
     def _launch_script(self, item: LaunchItem) -> bool:
         """Launch a script"""
+        self._allow_foreground()
         path = os.path.expandvars(os.path.expanduser(item.path))
         if not os.path.exists(path):
             return False
@@ -191,11 +203,13 @@ class Launcher:
     def _launch_url(self, item: LaunchItem) -> bool:
         """Open a URL in browser"""
         import webbrowser
+        self._allow_foreground()
         webbrowser.open(item.path)
         return True
 
     def _launch_folder(self, item: LaunchItem) -> bool:
         """Open a folder in explorer"""
+        self._allow_foreground()
         path = os.path.normpath(os.path.expandvars(os.path.expanduser(item.path.strip('"'))))
         if os.path.isdir(path):
             subprocess.Popen(['explorer', path])
@@ -204,6 +218,7 @@ class Launcher:
 
     def _launch_command(self, item: LaunchItem) -> bool:
         """Execute a shell command"""
+        self._allow_foreground()
         subprocess.Popen(item.path, shell=True, creationflags=_NO_WINDOW)
         return True
 
@@ -232,6 +247,7 @@ class Launcher:
 
     def _open_new_terminal_tab(self, terminal_type: str, command: str) -> bool:
         """Open a new terminal tab with command passed as shell arguments"""
+        self._allow_foreground()
         try:
             if terminal_type == "powershell":
                 if command:

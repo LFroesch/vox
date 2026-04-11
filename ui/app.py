@@ -793,10 +793,10 @@ class VoxApp(QMainWindow):
         self.last_command = text
         response_to_speak = None
 
-        note_text = self._extract_note_text(text)
-        reminder_response = self._handle_reminder_voice(text)
-
+        # Check wake word and notes FIRST — reminder parsing has side effects (creates entries)
         wake_word_response = self._handle_wake_word_voice(text)
+        note_text = self._extract_note_text(text)
+
         if wake_word_response is not None:
             result = {"executed": True, "success": True, "type": "wake_word"}
             response_to_speak = wake_word_response
@@ -804,32 +804,34 @@ class VoxApp(QMainWindow):
             self._save_note(note_text)
             result = {"executed": True, "success": True, "type": "note"}
             response_to_speak = "Note saved"
-        elif reminder_response is not False:  # False = not a reminder; None = no TTS; str = TTS
-            result = {"executed": True, "success": True, "type": "reminder"}
-            response_to_speak = reminder_response
         else:
-            # Try each alternative transcription for command matching
-            result = {"executed": False, "success": False, "type": None, "response": None}
-            for alt in alternatives:
-                result = self.commands.execute(alt)
-                if result["executed"]:
-                    text = alt  # use the alternative that matched
-                    response_to_speak = result.get("response")
-                    break
-
-            if not result["executed"]:
-                # Try launcher fallback with each alternative
+            reminder_response = self._handle_reminder_voice(text)
+            if reminder_response is not False:  # False = not a reminder; None = no TTS; str = TTS
+                result = {"executed": True, "success": True, "type": "reminder"}
+                response_to_speak = reminder_response
+            else:
+                # Try each alternative transcription for command matching
+                result = {"executed": False, "success": False, "type": None, "response": None}
                 for alt in alternatives:
-                    item = self.launcher.get_by_voice_phrase(alt)
-                    if item:
-                        self.launcher.launch(item)
-                        result = {"executed": True, "success": True, "type": "launcher"}
-                        text = alt
-                        response_to_speak = f"Launching {item.name}"
+                    result = self.commands.execute(alt)
+                    if result["executed"]:
+                        text = alt  # use the alternative that matched
+                        response_to_speak = result.get("response")
                         break
 
-            if not result["executed"]:
-                response_to_speak = "Command not known"
+                if not result["executed"]:
+                    # Try launcher fallback with each alternative
+                    for alt in alternatives:
+                        item = self.launcher.get_by_voice_phrase(alt)
+                        if item:
+                            self.launcher.launch(item)
+                            result = {"executed": True, "success": True, "type": "launcher"}
+                            text = alt
+                            response_to_speak = f"Launching {item.name}"
+                            break
+
+                if not result["executed"]:
+                    response_to_speak = "Command not known"
 
         self.tts.speak(response_to_speak)
         self.widget.set_tts_response(response_to_speak or "")

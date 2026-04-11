@@ -39,6 +39,11 @@ class WindowManager:
         'gamebarpresencewriter.exe', 'runtimebroker.exe', 'dwm.exe',
     }
 
+    # Window titles to hide (exact or prefix match, case-insensitive)
+    HIDDEN_TITLES = {
+        'picture in picture',  # PIP floating video (Chrome, Brave, Firefox, Edge)
+    }
+
     # App type identifiers for smart matching
     APP_IDENTIFIERS = {
         'brave': ['brave', 'brave-browser'],
@@ -83,6 +88,15 @@ class WindowManager:
         self.screen_width = win32api.GetSystemMetrics(0)
         self.screen_height = win32api.GetSystemMetrics(1)
 
+    def _is_hidden_window(self, info) -> bool:
+        """Return True if this window should be excluded from all listings."""
+        if info.process_name.lower() in self.HIDDEN_PROCESSES:
+            return True
+        title_lower = info.title.lower()
+        if title_lower in self.HIDDEN_TITLES:
+            return True
+        return False
+
     def get_all_windows(self) -> List[WindowInfo]:
         """Get all visible windows"""
         windows = []
@@ -91,7 +105,7 @@ class WindowManager:
             if win32gui.IsWindowVisible(hwnd):
                 info = self._get_window_info(hwnd)
                 if info and info.title and info.title != "Program Manager":
-                    if info.process_name.lower() not in self.HIDDEN_PROCESSES:
+                    if not self._is_hidden_window(info):
                         windows.append(info)
             return True
 
@@ -106,7 +120,7 @@ class WindowManager:
             if win32gui.IsWindowVisible(hwnd) or win32gui.IsIconic(hwnd):
                 info = self._get_window_info(hwnd)
                 if info and info.title and info.title != "Program Manager":
-                    if info.process_name.lower() not in self.HIDDEN_PROCESSES:
+                    if not self._is_hidden_window(info):
                         windows.append(info)
             return True
 
