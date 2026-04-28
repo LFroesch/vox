@@ -30,11 +30,18 @@ A voice-powered Windows productivity hub built with Python and PyQt6. Control yo
 | Tray | QSystemTrayIcon |
 | Build | PyInstaller + Inno Setup installer |
 
-## Setup
+## Install
 
-> **Windows only.** Vox is built and tested exclusively on Windows 10/11. It depends on `pywin32` for window management and the Windows-specific `keyboard`/`pyttsx3` paths, so it will not run on macOS or Linux. Development happens in WSL but the app itself runs on the Windows host.
+> **Windows 10/11 only.** Vox depends on `pywin32` and Windows-specific keyboard/audio paths and will not run on macOS or Linux.
 
-### Run from source (Windows)
+Grab the latest build from the [Releases page](https://github.com/LFroesch/vox/releases):
+
+- **`Vox-Setup-vX.Y.Z.exe`** — installer (recommended). Adds Start Menu / optional desktop shortcut.
+- **`vox-portable-vX.Y.Z.exe`** — single-file portable build if you'd rather not install.
+
+## Development
+
+Developed in WSL, the app itself runs on the Windows host.
 
 ```powershell
 git clone https://github.com/LFroesch/vox.git
@@ -43,26 +50,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Build standalone exe
-
-```powershell
-python -m PyInstaller vox.spec --clean
-# Output: dist/vox.exe
-```
-
-### Release automation
-
-Official Windows releases are built by GitHub Actions.
-
-- Push a tag like `v0.1.0`
-- GitHub Actions runs on `windows-latest`
-- The workflow builds `vox.exe` with `PyInstaller`
-- CI then packages it into a proper Windows installer with Inno Setup
-- GitHub Releases publishes both:
-  - `Vox-Setup-vX.Y.Z.exe` as the main installer
-  - `vox-portable-vX.Y.Z.exe` as the portable fallback
-
-If you just want the app, download the installer from the latest GitHub Release. The portable `.exe` is there if you explicitly want a no-install version. If you are developing locally, the manual `PyInstaller` command above still works.
+Build a local exe with `python -m PyInstaller vox.spec --clean` (output: `dist/vox.exe`). Tagged pushes (`v*`) trigger a GitHub Actions workflow that builds the installer + portable exe and publishes them to Releases — see [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
 ## Usage
 
