@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build Windows Release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Build exe
+        run: python -m PyInstaller vox.spec --clean
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "vox.iss"
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/vox.exe")) {
+            throw "dist/vox.exe was not created"
+          }
+          $version = "${{ github.ref_name }}"
+          $portable = "release/vox-portable-$version.exe"
+          $installer = "release/Vox-Setup-$version.exe"
+
+          if (!(Test-Path $installer)) {
+            throw "$installer was not created"
+          }
+
+          New-Item -ItemType Directory -Force -Path "release" | Out-Null
+          Copy-Item "dist/vox.exe" $portable -Force
+
+          (Get-FileHash $portable -Algorithm SHA256).Hash | Out-File -Encoding ascii "$portable.sha256"
+          (Get-FileHash $installer -Algorithm SHA256).Hash | Out-File -Encoding ascii "$installer.sha256"
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/Vox-Setup-*.exe
+            release/Vox-Setup-*.exe.sha256
+            release/vox-portable-*.exe
+            release/vox-portable-*.exe.sha256

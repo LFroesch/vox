@@ -6,9 +6,6 @@ A voice-powered Windows productivity hub built with Python and PyQt6. Control yo
 ![PyQt6](https://img.shields.io/badge/PyQt6-dark%20theme-41cd52)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078d4?logo=windows)
 
-<!-- TODO: replace with actual screenshot -->
-![Vox main window](assets/main-window.png)
-
 ## Features
 
 - **Voice Commands** — Google Speech Recognition with multi-candidate transcription and a 5-step matching pipeline (NLP intents → search → exact phrase → fuzzy token overlap → launcher fallback)
@@ -21,48 +18,6 @@ A voice-powered Windows productivity hub built with Python and PyQt6. Control yo
 - **Floating Widget** — Compact always-on-top overlay showing voice status, pending reminders with countdown, and favorited quick actions
 - **System Tray** — Minimize to tray with restore on double-click
 - **Single Instance** — Only one copy runs at a time; re-launching brings the existing window forward
-
-## Screenshots
-
-<details>
-<summary>Voice Commands</summary>
-
-<!-- TODO: screenshot or GIF of F9 hold → transcription → command match -->
-![Voice command flow](assets/voice-commands.png)
-
-</details>
-
-<details>
-<summary>Window Layouts</summary>
-
-<!-- TODO: screenshot of layout preview canvas + saved layouts list -->
-![Layout preview](assets/layouts.png)
-
-</details>
-
-<details>
-<summary>Workflows</summary>
-
-<!-- TODO: screenshot of workflow editor with steps + linked layout -->
-![Workflow editor](assets/workflows.png)
-
-</details>
-
-<details>
-<summary>Reminders</summary>
-
-<!-- TODO: screenshot of reminders page — pending, fired, recurring sections -->
-![Reminders page](assets/reminders.png)
-
-</details>
-
-<details>
-<summary>Floating Widget</summary>
-
-<!-- TODO: screenshot of widget on desktop showing reminders + quick actions -->
-![Floating widget](assets/widget.png)
-
-</details>
 
 ## Tech Stack
 
@@ -77,7 +32,11 @@ A voice-powered Windows productivity hub built with Python and PyQt6. Control yo
 
 ## Setup
 
-```bash
+> **Windows only.** Vox is built and tested exclusively on Windows 10/11. It depends on `pywin32` for window management and the Windows-specific `keyboard`/`pyttsx3` paths, so it will not run on macOS or Linux. Development happens in WSL but the app itself runs on the Windows host.
+
+### Run from source (Windows)
+
+```powershell
 git clone https://github.com/LFroesch/vox.git
 cd vox
 pip install -r requirements.txt
@@ -86,7 +45,7 @@ python main.py
 
 ### Build standalone exe
 
-```bash
+```powershell
 python -m PyInstaller vox.spec --clean
 # Output: dist/vox.exe
 ```
