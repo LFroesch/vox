@@ -28,6 +28,16 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
 
+      - name: Download Vosk wake-word model
+        shell: pwsh
+        run: |
+          $url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+          New-Item -ItemType Directory -Force -Path "data/models" | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile "vosk-model.zip"
+          Expand-Archive -Path "vosk-model.zip" -DestinationPath "data/models" -Force
+          Rename-Item -Path "data/models/vosk-model-small-en-us-0.15" -NewName "vosk"
+          Remove-Item "vosk-model.zip"
+
       - name: Build exe
         run: python -m PyInstaller vox.spec --clean
 
