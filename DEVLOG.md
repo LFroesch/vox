@@ -1,5 +1,13 @@
 ## DevLog
 
+### 2026-04-19: Windows tag-release automation
+
+- Added an Inno Setup installer script (`vox.iss`) so releases can ship a proper Windows installer instead of only a loose `.exe`
+- Expanded the GitHub Actions release workflow for `v*` tags: build `dist/vox.exe` with `PyInstaller`, package `Vox-Setup-vX.Y.Z.exe` with Inno Setup, emit SHA256 files, and publish both installer + portable assets to GitHub Releases
+- Updated README to make the installer the primary download path while keeping the portable `.exe` as a secondary fallback and the local `PyInstaller` flow documented
+- Updated WORK with the installer-first release flow plus follow-up code-signing note
+- Files: `.github/workflows/release.yml`, `vox.iss`, `README.md`, `WORK.md`, `.gitignore`
+
 ### 2026-04-10: Reminder false-positives, fullscreen monitor, launch-to-front
 
 - **Reminder false-positives**: `_handle_reminder_voice` was called before wake word check and immediately creates entries as a side effect. Restructured `_handle_voice_result` to check wake word and notes first, only call reminder parsing in the else branch. Also tightened `_TRIGGER` regex: `|wake|` → `|wake\s+(?:me|up)|` so "wake word" no longer triggers reminder parsing. Additionally, `_TRIGGER` now only matches in the first 6 words — prevents meta-statements like "everything is being treated as a reminder" from creating spurious reminders. (`app.py`, `manager.py`)

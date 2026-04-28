@@ -73,7 +73,7 @@ A voice-powered Windows productivity hub built with Python and PyQt6. Control yo
 | Windows | pywin32 (enumerate, move, resize, borderless toggle) |
 | Hotkeys | keyboard (global F9 hold-to-record, configurable) |
 | Tray | QSystemTrayIcon |
-| Build | PyInstaller → single `vox.exe` |
+| Build | PyInstaller + Inno Setup installer |
 
 ## Setup
 
@@ -90,6 +90,20 @@ python main.py
 python -m PyInstaller vox.spec --clean
 # Output: dist/vox.exe
 ```
+
+### Release automation
+
+Official Windows releases are built by GitHub Actions.
+
+- Push a tag like `v0.1.0`
+- GitHub Actions runs on `windows-latest`
+- The workflow builds `vox.exe` with `PyInstaller`
+- CI then packages it into a proper Windows installer with Inno Setup
+- GitHub Releases publishes both:
+  - `Vox-Setup-vX.Y.Z.exe` as the main installer
+  - `vox-portable-vX.Y.Z.exe` as the portable fallback
+
+If you just want the app, download the installer from the latest GitHub Release. The portable `.exe` is there if you explicitly want a no-install version. If you are developing locally, the manual `PyInstaller` command above still works.
 
 ## Usage
 
