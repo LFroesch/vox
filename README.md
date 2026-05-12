@@ -1,47 +1,52 @@
 # Vox
 
-A voice-powered Windows productivity hub built with Python and PyQt6. Control your desktop hands-free — manage window layouts, launch apps, run workflows, set reminders, and track clipboard history, all from a single dark-themed interface with an always-on-top floating widget.
+Voice-powered Windows productivity hub built with Python and PyQt6.
 
-![Python](https://img.shields.io/badge/Python-3.10+-3776ab?logo=python&logoColor=white)
-![PyQt6](https://img.shields.io/badge/PyQt6-dark%20theme-41cd52)
-![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078d4?logo=windows)
+Vox combines voice commands, launchers, workflows, reminders, clipboard history, and window layout management in a single desktop app. It is designed for Windows use, but the repo is structured so development can happen from WSL while the app runs on the Windows host.
 
-## Features
+## Highlights
 
-- **Voice Commands** — Google Speech Recognition with multi-candidate transcription and a 5-step matching pipeline (NLP intents → search → exact phrase → fuzzy token overlap → launcher fallback)
-- **Window Layouts** — Save and restore multi-monitor window arrangements. Smart matching handles multiple instances of the same app (e.g. 5 VS Code windows). QPainter-based visual preview
-- **Workflows** — Batch-launch apps, terminals, URLs, and commands in sequence with optional auto-layout after a configurable delay. Import steps from existing launchers
-- **App Launcher** — Launch apps, terminals, URLs, folders, and scripts with per-item voice phrases and args support. Collapsible sections by type
-- **Reminders** — Timers, alarms, and reminders with calendar/time picker. Recurring schedules (daily/weekdays/weekly/interval). NLP voice input: "remind me to X at 3pm", "every weekday at 9am check email"
-- **Clipboard History** — Persistent tracking with one-click copy and saved snippets
-- **Notes** — Voice-powered note-taking ("note [text]") that appends to a notes pad on the Home page
-- **Floating Widget** — Compact always-on-top overlay showing voice status, pending reminders with countdown, and favorited quick actions
-- **System Tray** — Minimize to tray with restore on double-click
-- **Single Instance** — Only one copy runs at a time; re-launching brings the existing window forward
+- Voice-triggered notes, reminders, timers, search, media controls, and app actions
+- Saved window layouts with multi-window matching
+- Workflows that batch-launch apps, terminals, URLs, or commands
+- Floating always-on-top widget for status and quick actions
+- Persistent clipboard history and snippets
+- System tray support and single-instance behavior
+- Optional wake word support with Vosk
 
-## Tech Stack
+## Stack
 
-| Layer | Tech |
-|-------|------|
-| UI | PyQt6, QSS dark theme, sidebar nav + stacked pages |
-| Voice | SpeechRecognition (Google STT), pyttsx3 (TTS) |
-| Windows | pywin32 (enumerate, move, resize, borderless toggle) |
-| Hotkeys | keyboard (global F9 hold-to-record, configurable) |
-| Tray | QSystemTrayIcon |
-| Build | PyInstaller + Inno Setup installer |
+| Layer | Technologies |
+|-------|--------------|
+| UI | PyQt6, QSS styling |
+| Voice input | SpeechRecognition, Google STT |
+| Wake word | Vosk, PyAudio |
+| TTS | pyttsx3 |
+| Windows control | pywin32, keyboard, psutil |
+| Packaging | PyInstaller, Inno Setup |
 
 ## Install
 
-> **Windows 10/11 only.** Vox depends on `pywin32` and Windows-specific keyboard/audio paths and will not run on macOS or Linux.
+This is a Windows-only app.
 
-Grab the latest build from the [Releases page](https://github.com/LFroesch/vox/releases):
+The easiest path is to download a release build from:
 
-- **`Vox-Setup-vX.Y.Z.exe`** — installer (recommended). Adds Start Menu / optional desktop shortcut.
-- **`vox-portable-vX.Y.Z.exe`** — single-file portable build if you'd rather not install.
+- [GitHub Releases](https://github.com/LFroesch/vox/releases)
 
-## Development
+Release artifacts:
 
-Developed in WSL, the app itself runs on the Windows host.
+- `Vox-Setup-vX.Y.Z.exe`: installer build
+- `vox-portable-vX.Y.Z.exe`: portable single-file build
+
+## Run from source
+
+Requirements:
+
+- Windows 10 or 11
+- Python 3.10+
+- Microphone for voice features
+
+Clone and install:
 
 ```powershell
 git clone https://github.com/LFroesch/vox.git
@@ -50,71 +55,69 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Build a local exe with `python -m PyInstaller vox.spec --clean` (output: `dist/vox.exe`). Tagged pushes (`v*`) trigger a GitHub Actions workflow that builds the installer + portable exe and publishes them to Releases — see [`.github/workflows/release.yml`](.github/workflows/release.yml).
+## Wake word setup
+
+Manual recording with the hotkey works without a wake word model. Wake word support needs the Vosk small English model available at one of these locations:
+
+- `data/models/vosk/`
+- `%USERPROFILE%\.vox\models\vosk\`
+
+The expected model is `vosk-model-small-en-us-0.15`. The release workflow downloads and packages it automatically, but source runs need you to place it there yourself if you want wake word mode.
 
 ## Usage
 
-### Voice Commands (F9 to record)
+Default interaction:
 
-| Category | Examples |
-|----------|----------|
-| Notes | "note [text]", "take a note [text]" |
-| Reminders | "remind me to X at 3pm", "remind me to X" (no time = tomorrow 9am) |
-| Timers | "set timer 5 minutes", "timer for half an hour", "a couple minutes" |
-| Recurring | "every day at 9am check email", "every 30 minutes stretch" |
-| Search | "search for X", "what is X", "how to X" |
-| Spotify | "play/pause", "next song", "volume up" |
-| System | "mute", "screenshot", "volume down" |
-| Layouts | "coding layout", "gaming layout" |
-| Workflows | "run dev setup", "start X workflow" |
-| Launchers | any assigned voice phrase |
+- Hold `F9` to record a command
+- Speak naturally
+- Vox routes the request through intent parsing, exact matches, fuzzy matching, and launcher/workflow fallbacks
 
-Commands are matched in priority order: NLP intents (notes, reminders, timers) are parsed first, then search, exact phrases, fuzzy token matching, and finally launcher phrases.
+Examples:
 
-### Workflows
+- `note call sam tomorrow`
+- `remind me to stretch at 3pm`
+- `set timer 10 minutes`
+- `search for tailwind grid examples`
+- `run dev setup`
+- `coding layout`
 
-Workflows batch-launch multiple apps/commands in sequence — e.g. open 5 editor windows, 3 terminals, and a browser, then auto-apply a window layout.
+## Main modules
 
-1. Create launchers for each app (Launchers page)
-2. Create a workflow (Windows → Workflows → + New), import steps with "From Launcher"
-3. Optionally link a saved layout to auto-position windows after launch
+| Module | Purpose |
+|--------|---------|
+| `modules/voice/` | Speech recognition, wake word, command routing, TTS |
+| `modules/windows/` | Window discovery, layout save/restore, matching |
+| `modules/launcher/` | Launch apps, terminals, URLs, folders, commands |
+| `modules/workflows/` | Batch launch flows with optional linked layouts |
+| `modules/reminders/` | Timers, alarms, recurring reminders |
+| `modules/clipboard/` | Clipboard monitoring, history, snippets |
+| `ui/` | Main app window, pages, widget, styles |
 
-### Layouts
+## Data location
 
-Save current window positions and restore them by name or voice. Layouts are pure positioning — use workflows for launching apps.
+Vox stores user data under `~/.vox/`, including:
 
-### WSL Distro Setting
+- `config.json`
+- `data/`
+- `notes.md`
+- `voice_log.txt`
 
-If you use WSL and have launcher items that open terminals or run commands in WSL, Vox needs to know which distro to target. The **WSL Distro** dropdown in Settings auto-detects installed distros. Leave it blank to use your default WSL distro, or pick a specific one (e.g. `Ubuntu`) if you have multiple installed. This controls which distro is used when launching WSL terminal items and building UNC paths (`\\wsl$\<Distro>\...`) for project folders.
+## Development notes
 
-## Architecture
+- The project is developed in WSL but should be tested on Windows.
+- Launcher args are intentionally passed as a single argument so Windows paths with spaces do not break.
+- WSL terminal and project launchers rely on UNC-style paths such as `\\wsl$\Distro\...`.
 
-```
-main.py                 # Entry point (single-instance guard)
-core/
-  config.py             # ~/.vox/ config singleton (JSON)
-  hotkeys.py            # Global hotkey registration
-modules/
-  voice/                # Google STT, command matching, TTS
-  windows/              # Window enumeration, layouts, positioning
-  launcher/             # App/terminal/URL/folder launching
-  clipboard/            # Clipboard monitoring + history
-  reminders/            # Timers, alarms, recurring reminders
-  workflows/            # Batch launch + layout linking
-sounds/                 # Alert sounds (reminder notifications)
-ui/
-  app.py                # Main window (sidebar nav, signals, tray)
-  widget.py             # Floating always-on-top widget
-  styles.py             # Dark theme colors, QSS, font helper
-  pages/                # Home, Windows, Launchers, Clipboard, Reminders, Help, Settings
+## Packaging
+
+Build a local executable with:
+
+```powershell
+python -m PyInstaller vox.spec --clean
 ```
 
-## Requirements
-
-- Windows 10/11
-- Python 3.10+
-- Microphone (for voice commands)
+Tagged pushes matching `v*` trigger the Windows release workflow in [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds both the installer and portable release assets.
 
 ## License
 
-[AGPL-3.0](LICENSE) — Copyright 2026 Lucas Froeschner
+[AGPL-3.0](LICENSE)
