@@ -4,6 +4,8 @@ Voice-powered Windows productivity hub built with Python and PyQt6.
 
 Vox combines voice commands, launchers, workflows, reminders, clipboard history, and window layout management in a single desktop app. It is designed for Windows use, but the repo is structured so development can happen from WSL while the app runs on the Windows host.
 
+**Project page:** [froesch.dev](https://froesch.dev)
+
 ## Highlights
 
 - Voice-triggered notes, reminders, timers, search, media controls, and app actions
